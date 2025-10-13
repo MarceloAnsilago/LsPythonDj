@@ -1,0 +1,36 @@
+/* Soft UI: bordas suaves, sombras leves, tons equilibrados */
+:root {
+  --soft-radius: 0.9rem;
+  --soft-shadow: 0 6px 16px rgba(0,0,0,.08);
+}
+
+[data-bs-theme="dark"] {
+  --bs-body-bg: #111418;
+  --bs-body-color: #e4e6eb;
+}
+
+.soft-card,
+.card.soft-card {
+  border: 1px solid rgba(0,0,0,.06);
+  border-radius: var(--soft-radius);
+  box-shadow: var(--soft-shadow);
+}
+
+.navbar,
+.offcanvas,
+.card {
+  border-radius: var(--soft-radius);
+}
+
+.offcanvas .nav-link {
+  display: flex; align-items: center; gap: .5rem;
+}
+
+.offcanvas .nav-link.active {
+  background: var(--bs-primary-bg-subtle, rgba(13,110,253,.12));
+  font-weight: 600;
+}
+
+.badge.text-bg-secondary {
+  opacity: .8;
+}

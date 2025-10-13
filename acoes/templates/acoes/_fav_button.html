@@ -1,0 +1,9 @@
+<form method="post" action="{% url 'acoes:favoritar' asset.id %}"
+      {% comment %} Se depois instalar HTMX, esses attrs ativam AJAX automaticamente {% endcomment %}
+      hx-post="{% url 'acoes:favoritar' asset.id %}"
+      hx-target="#favbtn-{{ asset.id }}" hx-swap="outerHTML">
+  {% csrf_token %}
+  <button class="btn btn-sm {% if is_fav %}btn-warning{% else %}btn-outline-secondary{% endif %}">
+    {% if is_fav %}<i class="bi bi-star-fill"></i>{% else %}<i class="bi bi-star"></i>{% endif %}
+  </button>
+</form>

@@ -1,0 +1,14 @@
+{% extends "_base.html" %}
+{% load static %}
+
+{% block content %}
+<h2 class="mb-3">Excluir Ativo</h2>
+<div class="card p-3 shadow-sm rounded-3">
+  <p>Confirma excluir <strong>{{ object.ticker }}</strong> — {{ object.name }}?</p>
+  <form method="post" class="d-flex gap-2">
+    {% csrf_token %}
+    <button class="btn btn-danger">Excluir</button>
+    <a class="btn btn-outline-secondary" href="{% url 'acoes:lista' %}">Cancelar</a>
+  </form>
+</div>
+{% endblock %}

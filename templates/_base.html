@@ -1,0 +1,138 @@
+{% load static %}
+<!doctype html>
+<html lang="pt-br" data-bs-theme="light">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{% block title %}LongShortDjango{% endblock %}</title>
+
+    <!-- Bootstrap 5.3 + Icons (CDN) -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet">
+
+    <!-- Soft UI -->
+    <link href="{% static 'css/soft-ui.css' %}" rel="stylesheet">
+
+    <!-- Tema (aplica e persiste claro/escuro) — APENAS UMA VEZ -->
+    <script defer src="{% static 'js/theme.js' %}?v=5"></script>
+
+    {% block extra_head %}{% endblock %}
+  </head>
+  <body class="bg-body-tertiary">
+
+
+    <!-- Navbar -->
+    <nav class="navbar navbar-expand-lg bg-body shadow-sm">
+      <div class="container-fluid">
+        <button class="btn btn-outline-secondary btn-sm me-2"
+                data-bs-toggle="offcanvas" data-bs-target="#appSidebar" aria-controls="appSidebar">
+          <i class="bi bi-list"></i>
+        </button>
+
+        <a class="navbar-brand fw-semibold" href="{% url 'core:home' %}">
+          LongShortDjango
+        </a>
+
+        <div class="d-flex align-items-center ms-auto gap-2">
+          <!-- Dark Toggle (único) -->
+          <button type="button" class="btn btn-outline-secondary btn-sm"
+                  title="Alternar tema" id="themeToggle" data-toggle-theme>
+            <i class="bi bi-moon-stars"></i>
+          </button>
+          {% if request.user.is_authenticated %}
+            <span class="text-secondary small d-none d-sm-inline">Olá, {{ request.user.username }}</span>
+          {% endif %}
+        </div>
+      </div>
+    </nav>
+
+    <!-- Sidebar Offcanvas -->
+    <div class="offcanvas offcanvas-start" tabindex="-1" id="appSidebar" aria-labelledby="appSidebarLabel">
+      <div class="offcanvas-header">
+        <h5 class="offcanvas-title" id="appSidebarLabel">Menu</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="offcanvas" aria-label="Fechar"></button>
+      </div>
+      <div class="offcanvas-body p-2 d-flex flex-column">
+        <ul class="nav nav-pills flex-column gap-1">
+          <li class="nav-item">
+            <a class="nav-link d-flex align-items-center gap-2 {% if current == 'home' %}active{% endif %}"
+               href="{% url 'core:home' %}">
+              <i class="bi bi-house-door"></i><span>Início</span>
+            </a>
+          </li>
+          <li class="nav-item">
+            <a class="nav-link d-flex align-items-center gap-2 {% if current == 'acoes' %}active{% endif %}"
+               href="{% url 'acoes:lista' %}">
+              <i class="bi bi-briefcase"></i><span>Ações</span>
+            </a>
+          </li>
+          <li class="nav-item">
+            <a class="nav-link d-flex align-items-center gap-2 {% if current == 'pares' %}active{% endif %}"
+               href="{% url 'core:pares' %}">
+              <i class="bi bi-shuffle"></i><span>Pares</span>
+            </a>
+          </li>
+          <li class="nav-item">
+            <a class="nav-link d-flex align-items-center gap-2 {% if current == 'cotacoes' %}active{% endif %}"
+               href="{% url 'core:cotacoes' %}">
+              <i class="bi bi-graph-up-arrow"></i><span>Cotações</span>
+            </a>
+          </li>
+          <li class="nav-item">
+            <a class="nav-link d-flex align-items-center gap-2 {% if current == 'analise' %}active{% endif %}"
+               href="{% url 'core:analise' %}">
+              <i class="bi bi-kanban"></i><span>Análise</span>
+            </a>
+          </li>
+          <li class="nav-item">
+            <a class="nav-link d-flex align-items-center gap-2 {% if current == 'operacoes' %}active{% endif %}"
+               href="{% url 'core:operacoes' %}">
+              <i class="bi bi-activity"></i><span>Operações</span>
+            </a>
+          </li>
+          <li class="nav-item">
+            <a class="nav-link d-flex align-items-center gap-2 {% if current == 'encerradas' %}active{% endif %}"
+               href="{% url 'core:encerradas' %}">
+              <i class="bi bi-check2-circle"></i><span>Encerradas</span>
+            </a>
+          </li>
+          <li class="nav-item">
+            <a class="nav-link d-flex align-items-center gap-2 {% if current == 'faltantes' %}active{% endif %}"
+               href="{% url 'core:faltantes' %}">
+              <i class="bi bi-exclamation-triangle"></i><span>Faltantes</span>
+            </a>
+          </li>
+          <li class="nav-item mt-2">
+            <a class="nav-link d-flex align-items-center gap-2 {% if current == 'config' %}active{% endif %}"
+               href="{% url 'core:config' %}">
+              <i class="bi bi-gear"></i><span>Configurações</span>
+            </a>
+          </li>
+        </ul>
+
+        <div class="mt-auto small text-secondary px-2">
+          <hr>
+          <div>Theme: <span id="themeBadge" class="badge text-bg-secondary">light</span></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Conteúdo com gutter -->
+    <main class="container my-3">
+      {% if messages %}
+        {% for message in messages %}
+          <div class="alert alert-{{ message.tags|default:'info' }} alert-dismissible fade show" role="alert">
+            {{ message }}
+            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+          </div>
+        {% endfor %}
+      {% endif %}
+
+      {% block content %}{% endblock %}
+    </main>
+
+    <!-- Bootstrap JS -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+    {% block extra_js %}{% endblock %}
+  </body>
+</html>
