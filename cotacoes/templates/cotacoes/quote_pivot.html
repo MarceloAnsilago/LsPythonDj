@@ -1,0 +1,40 @@
+{% extends "_base.html" %}
+{% block content %}
+<main class="container my-3">
+  <div class="card rounded-3 shadow-sm mb-3">
+    <div class="card-body">
+      <h5 class="mb-0">Tabela de Cotações (Pivot)</h5>
+    </div>
+  </div>
+  <div class="card">
+    <div class="card-body">
+      <div class="table-responsive">
+        <table class="table table-bordered table-sm">
+          <thead class="table-light">
+            <tr>
+              <th style="min-width:120px;">Data</th>
+              {% for col in cols %}
+                <th>{{ col }}</th>
+              {% endfor %}
+            </tr>
+          </thead>
+          <tbody>
+            {% for row in data %}
+              <tr>
+                <td>{{ row.date|date:"d/m/Y" }}</td>
+                {% for val in row.values %}
+                  <td class="text-end">{% if val != '' %}{{ val|floatformat:2 }}{% endif %}</td>
+                {% endfor %}
+              </tr>
+            {% empty %}
+              <tr>
+                <td colspan="{{ cols|length|add:'1' }}" class="text-center text-muted">Sem dados.</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</main>
+{% endblock %}

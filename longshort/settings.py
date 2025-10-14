@@ -38,10 +38,15 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
+
     # Apps do projeto
-    'core',   # << SP1
-    'acoes',  
-    'django_htmx', 
+    'core',
+    'acoes',
+    'pairs.apps.PairsConfig',   # 👈 ADICIONE ISTO
+    'cotacoes',
+
+    # Extras
+    'django_htmx',
     'widget_tweaks',
 ]
 

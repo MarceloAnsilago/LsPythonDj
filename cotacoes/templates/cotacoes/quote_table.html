@@ -1,0 +1,29 @@
+{% extends "_base.html" %}
+{% block content %}
+<main class="container my-3">
+  <div class="card rounded-3 shadow-sm">
+    <div class="card-body">
+      <h5 class="mb-3">Tabela de cotações</h5>
+      <div class="table-responsive">
+        <table class="table table-sm align-middle">
+          <thead class="table-light"><tr><th>Data</th><th>Ativo</th><th>Fech.</th></tr></thead>
+          <tbody>
+            {% for q in quotes %}
+              <tr><td>{{ q.date }}</td><td>{{ q.asset.ticker }}</td><td>{{ q.close }}</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% if is_paginated %}
+      <nav class="mt-2">
+        <ul class="pagination pagination-sm">
+          {% if page_obj.has_previous %}<li class="page-item"><a class="page-link" href="?page={{ page_obj.previous_page_number }}">«</a></li>{% endif %}
+          <li class="page-item active"><span class="page-link">{{ page_obj.number }}</span></li>
+          {% if page_obj.has_next %}<li class="page-item"><a class="page-link" href="?page={{ page_obj.next_page_number }}">»</a></li>{% endif %}
+        </ul>
+      </nav>
+      {% endif %}
+    </div>
+  </div>
+</main>
+{% endblock %}

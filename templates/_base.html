@@ -1,6 +1,7 @@
 {% load static %}
 <!doctype html>
 <html lang="pt-br" data-bs-theme="light">
+
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -73,10 +74,10 @@
             </a>
           </li>
           <li class="nav-item">
-            <a class="nav-link d-flex align-items-center gap-2 {% if current == 'cotacoes' %}active{% endif %}"
-               href="{% url 'core:cotacoes' %}">
-              <i class="bi bi-graph-up-arrow"></i><span>Cotações</span>
-            </a>
+          <a class="nav-link d-flex align-items-center gap-2 {% if current == 'cotacoes' %}active{% endif %}"
+            href="{% url 'cotacoes:home' %}">
+            <i class="bi bi-graph-up-arrow"></i><span>Cotações</span>
+          </a>
           </li>
           <li class="nav-item">
             <a class="nav-link d-flex align-items-center gap-2 {% if current == 'analise' %}active{% endif %}"
@@ -136,3 +137,5 @@
     {% block extra_js %}{% endblock %}
   </body>
 </html>
+{% load static %}
+<script src="{% static 'js/logo-fallback.js' %}"></script>

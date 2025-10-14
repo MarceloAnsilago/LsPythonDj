@@ -1,0 +1,94 @@
+{% extends "_base.html" %}
+{% load static %}
+{% block content %}
+<main class="container my-3">
+  <div class="card rounded-3 shadow-sm mb-3">
+    <div class="card-body d-flex justify-content-between align-items-center">
+      <div>
+        <h5 class="mb-0">Cotações</h5>
+        <small class="text-muted">Atualizar faltantes / últimas 300 (yfinance).</small>
+      </div>
+      <div class="d-flex gap-2">
+        <a class="btn btn-outline-primary" href="{% url 'cotacoes:update' %}">
+          <i class="bi bi-arrow-clockwise"></i> Atualizar Cotações
+        </a>
+        <a class="btn btn-outline-info" href="{% url 'cotacoes:pivot' %}">
+          <i class="bi bi-layout-three-columns"></i> Tabela dinâmica (tela cheia)
+        </a>
+      </div>
+    </div>
+  </div>
+
+  <div class="row g-3">
+    <!-- ESQUERDA: TABELA DINÂMICA -->
+    <div class="col-lg-8">
+      <div class="card rounded-3 shadow-sm">
+        <div class="card-header bg-transparent">
+          <strong>Tabela de Cotações (Pivot)</strong>
+        </div>
+        <div class="card-body">
+
+          <!-- rolagem horizontal -->
+          <div class="table-responsive" style="overflow-x:auto;">
+            <table class="table table-bordered table-sm align-middle text-nowrap">
+              <thead class="table-light">
+                <tr>
+                  <th style="min-width: 110px;">Data</th>
+                  {% for col in pivot_cols %}
+                    <th class="text-end">{{ col }}</th>
+                  {% endfor %}
+                </tr>
+              </thead>
+              <tbody>
+                {% for row in pivot_rows %}
+                  <tr>
+                    <td>{{ row.date|date:"d/m/Y" }}</td>
+                    {% for v in row.values %}
+                      <td class="text-end">{% if v != '' %}{{ v|floatformat:2 }}{% endif %}</td>
+                    {% endfor %}
+                  </tr>
+                {% empty %}
+                  <tr>
+                    <td colspan="{{ pivot_cols|length|add:'1' }}" class="text-center text-muted">
+                      Sem dados.
+                    </td>
+                  </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+
+          <small class="text-muted">Dica: arraste para o lado para ver todos os ativos.</small>
+        </div>
+      </div>
+    </div>
+
+    <!-- DIREITA: LOGS -->
+    <div class="col-lg-4">
+      <div class="card rounded-3 shadow-sm">
+        <div class="card-header bg-transparent"><strong>Logs de faltantes</strong></div>
+        <div class="card-body">
+          <ul class="list-group list-group-flush">
+            {% for log in logs %}
+              <li class="list-group-item d-flex justify-content-between align-items-center">
+                <span>
+                  <span class="badge text-bg-secondary">{{ log.asset.ticker }}</span>
+                  <small class="text-muted">{{ log.created_at|date:"d/m/Y H:i" }}</small><br>
+                  <span class="small">{{ log.reason }} — {{ log.detail|truncatechars:60 }}</span>
+                </span>
+                {% if log.resolved_bool %}
+                  <span class="badge text-bg-success">ok</span>
+                {% else %}
+                  <span class="badge text-bg-warning">pendente</span>
+                {% endif %}
+              </li>
+            {% empty %}
+              <li class="list-group-item text-muted">Sem logs.</li>
+            {% endfor %}
+          </ul>
+        </div>
+      </div>
+    </div>
+  </div>
+</main>
+{% endblock %}
