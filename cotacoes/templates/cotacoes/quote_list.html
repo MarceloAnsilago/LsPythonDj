@@ -6,12 +6,17 @@
     <div class="card-body d-flex justify-content-between align-items-center">
       <div>
         <h5 class="mb-0">Cotações</h5>
-        <small class="text-muted">Atualizar faltantes / últimas 300 (yfinance).</small>
+        <small class="text-muted">Atualizar faltantes / últimas 300 (Stooq → Yahoo fallback).</small>
       </div>
+
       <div class="d-flex gap-2">
-        <a class="btn btn-outline-primary" href="{% url 'cotacoes:update' %}">
-          <i class="bi bi-arrow-clockwise"></i> Atualizar Cotações
+        <!-- BOTÃO COM SPINNER -->
+        <a id="btnUpdate" class="btn btn-outline-primary" href="{% url 'cotacoes:update' %}">
+          <span class="spinner-border spinner-border-sm me-2 d-none" id="spUpdate" role="status" aria-hidden="true"></span>
+          <i class="bi bi-arrow-clockwise" id="icoUpdate"></i>
+          <span id="txtUpdate">Atualizar Cotações</span>
         </a>
+
         <a class="btn btn-outline-info" href="{% url 'cotacoes:pivot' %}">
           <i class="bi bi-layout-three-columns"></i> Tabela dinâmica (tela cheia)
         </a>
@@ -20,20 +25,18 @@
   </div>
 
   <div class="row g-3">
-    <!-- ESQUERDA: TABELA DINÂMICA -->
+    <!-- ESQUERDA: PIVOT -->
     <div class="col-lg-8">
       <div class="card rounded-3 shadow-sm">
         <div class="card-header bg-transparent">
           <strong>Tabela de Cotações (Pivot)</strong>
         </div>
         <div class="card-body">
-
-          <!-- rolagem horizontal -->
           <div class="table-responsive" style="overflow-x:auto;">
             <table class="table table-bordered table-sm align-middle text-nowrap">
               <thead class="table-light">
                 <tr>
-                  <th style="min-width: 110px;">Data</th>
+                  <th style="min-width:110px;">Data</th>
                   {% for col in pivot_cols %}
                     <th class="text-end">{{ col }}</th>
                   {% endfor %}
@@ -57,7 +60,6 @@
               </tbody>
             </table>
           </div>
-
           <small class="text-muted">Dica: arraste para o lado para ver todos os ativos.</small>
         </div>
       </div>
@@ -70,25 +72,72 @@
         <div class="card-body">
           <ul class="list-group list-group-flush">
             {% for log in logs %}
-              <li class="list-group-item d-flex justify-content-between align-items-center">
-                <span>
-                  <span class="badge text-bg-secondary">{{ log.asset.ticker }}</span>
-                  <small class="text-muted">{{ log.created_at|date:"d/m/Y H:i" }}</small><br>
-                  <span class="small">{{ log.reason }} — {{ log.detail|truncatechars:60 }}</span>
-                </span>
-                {% if log.resolved_bool %}
-                  <span class="badge text-bg-success">ok</span>
-                {% else %}
-                  <span class="badge text-bg-warning">pendente</span>
-                {% endif %}
+              <li class="list-group-item">
+                <div class="d-flex justify-content-between align-items-start">
+                  <div>
+                    <span class="badge text-bg-secondary">{{ log.asset.ticker }}</span>
+                    <small class="text-muted">{{ log.created_at|date:"d/m/Y H:i" }}</small><br>
+                    <span class="small d-block mt-1">
+                      {{ log.reason }} — {{ log.detail|truncatechars:80 }}
+                    </span>
+                  </div>
+
+                  {% if log.resolved_bool %}
+                    <span class="badge text-bg-success">ok</span>
+                  {% else %}
+                    <div class="text-end">
+                      <span class="badge text-bg-warning">pendente</span>
+                      <!-- Botão 'Verificar' (placeholder, sem ação por enquanto) -->
+                      <div>
+                        <button type="button"
+                                class="btn btn-sm btn-warning mt-1"
+                                style="--bs-btn-padding-y:.10rem; --bs-btn-padding-x:.45rem; --bs-btn-font-size:.75rem;">
+                          Verificar
+                        </button>
+                      </div>
+                    </div>
+                  {% endif %}
+                </div>
               </li>
             {% empty %}
               <li class="list-group-item text-muted">Sem logs.</li>
             {% endfor %}
           </ul>
+
+          <!-- Botão 'Limpar' -->
+          <div class="mt-3 text-end">
+            <form method="post" action="{% url 'cotacoes:logs_clear' %}"
+                  onsubmit="return confirm('Tem certeza que deseja limpar os logs?');">
+              {% csrf_token %}
+              <button type="submit" class="btn btn-outline-secondary btn-sm">
+                Limpar
+              </button>
+            </form>
+          </div>
         </div>
       </div>
     </div>
   </div>
 </main>
+
+<!-- Script do spinner -->
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+  const btn = document.getElementById('btnUpdate');
+  if (!btn) return;
+
+  const sp  = document.getElementById('spUpdate');
+  const ico = document.getElementById('icoUpdate');
+  const txt = document.getElementById('txtUpdate');
+
+  btn.addEventListener('click', function () {
+    // mostra spinner e desabilita botão imediatamente
+    sp.classList.remove('d-none');
+    if (ico) ico.classList.add('d-none');
+    if (txt) txt.textContent = 'Atualizando...';
+    btn.classList.add('disabled');
+    btn.setAttribute('aria-disabled', 'true');
+  }, { passive: true });
+});
+</script>
 {% endblock %}
