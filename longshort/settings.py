@@ -31,7 +31,7 @@ ALLOWED_HOSTS = []
 # Application definition
 
 INSTALLED_APPS = [
-    # Django default...
+    # Apps padrão do Django
     'django.contrib.admin',
     'django.contrib.auth',
     'django.contrib.contenttypes',
@@ -43,10 +43,14 @@ INSTALLED_APPS = [
     'core',
     'acoes',
     'cotacoes',
+
     # Extras
     'django_htmx',
     'widget_tweaks',
     'pairs',
+
+    # Autenticação
+    'accounts',  # 👈 adicionado aqui
 ]
 
 

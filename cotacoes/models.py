@@ -1,10 +1,12 @@
 from __future__ import annotations
 from django.conf import settings
 from django.db import models
+from acoes.models import Asset
+
 
 class QuoteDaily(models.Model):
     asset = models.ForeignKey("acoes.Asset", on_delete=models.CASCADE, related_name="quotes")
-    date  = models.DateField()
+    date = models.DateField()
     close = models.FloatField()
 
     class Meta:
@@ -16,6 +18,7 @@ class QuoteDaily(models.Model):
 
     def __str__(self):
         return f"{self.asset.ticker} {self.date} = {self.close}"
+
 
 class MissingQuoteLog(models.Model):
     asset = models.ForeignKey("acoes.Asset", on_delete=models.CASCADE, related_name="missing_logs")
@@ -31,3 +34,19 @@ class MissingQuoteLog(models.Model):
 
     def __str__(self):
         return f"[{self.asset.ticker}] {self.reason} {self.date or ''}"
+
+
+# ---------------------------------------------------------------------
+# 🟢 Novo modelo — cotação intradiária (tempo real via Yahoo)
+# ---------------------------------------------------------------------
+class QuoteLive(models.Model):
+    asset = models.OneToOneField("acoes.Asset", on_delete=models.CASCADE, related_name="live_quote")
+    price = models.FloatField()
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "Cotação Atual"
+        verbose_name_plural = "Cotações Atuais"
+
+    def __str__(self):
+        return f"{self.asset.ticker}: {self.price:.2f}"

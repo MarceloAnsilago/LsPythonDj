@@ -140,3 +140,18 @@ def update_quotes_ajax(request: HttpRequest):
     messages.success(request, f"Cotações atualizadas: {n_assets} ativos, {n_rows} linhas inseridas.")
     _progress_set(request.user.id, ticker="", index=n_assets, total=assets.count(), status="done", rows=n_rows)
     return JsonResponse({"ok": True, "assets": n_assets, "rows": n_rows})
+
+
+@login_required
+def update_live_quotes_view(request: HttpRequest):
+    """
+    View que atualiza os preços ao vivo (intervalo de 5 minutos via Yahoo Finance)
+    e salva na tabela cotacoes_quotelive.
+    """
+    from longshort.services.quotes import update_live_quotes
+
+    assets = Asset.objects.filter(is_active=True).order_by("id")
+    n_updated, n_total = update_live_quotes(assets)
+
+    messages.success(request, f"Cotações ao vivo atualizadas: {n_updated}/{n_total} ativos.")
+    return redirect("cotacoes:home")

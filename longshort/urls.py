@@ -10,6 +10,8 @@ urlpatterns = [
     # 🔽 PARES ANTES DO CORE
     path("pares/", include(("pairs.urls", "pairs"), namespace="pairs")),
 
+    # 🔽 LOGIN / CONTAS
+    path("accounts/", include("accounts.urls")),  # 👈 ADICIONADO
 
     # 🔽 CORE POR ÚLTIMO (catch-all da home e demais páginas gerais)
     path("", include("core.urls")),
