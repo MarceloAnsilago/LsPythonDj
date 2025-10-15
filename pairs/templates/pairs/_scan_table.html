@@ -10,7 +10,6 @@
       <col class="col-half">
       <col class="col-status">
       <col class="col-status">
-      <col class="col-actions">
     </colgroup>
 
     <thead class="table-light">
@@ -24,14 +23,25 @@
         <th class="text-center">Half-life</th>
         <th class="text-center">Corr30/60</th>
         <th class="text-center">Status</th>
-        <th class="text-end col-actions">Ação</th>
       </tr>
     </thead>
 
     <tbody class="table-group-divider">
       {% for r in rows %}
         <tr class="{% if best and r.window == best.window %}table-primary{% endif %}">
-          <td>{{ pair }}</td>
+          <td>
+            <a class="d-inline-flex align-items-center gap-1 text-decoration-none"
+               href="{% url 'pairs:zscore' pair.id r.window %}"
+               hx-get="{% url 'pairs:zscore' pair.id r.window %}"
+               hx-target="#zChartPane"
+               hx-indicator="#zChartSpinner"
+               hx-swap="innerHTML"
+               title="Abrir análise (gráfico Z-score) para {{ r.window }}d">
+              <i class="bi bi-check2-circle text-success"></i>
+              <span>{{ pair }}</span>
+            </a>
+          </td>
+
           <td class="text-center"><span class="badge text-bg-secondary badge-pill">{{ r.window }}d</span></td>
           <td class="text-center">{% if r.adf_pvalue is not None %}{{ r.adf_pvalue|floatformat:4 }}{% else %}—{% endif %}</td>
           <td class="text-center">{% if r.adf_pct is not None %}{{ r.adf_pct|floatformat:1 }}%{% else %}—{% endif %}</td>
@@ -54,23 +64,10 @@
               <span class="badge text-bg-danger badge-pill" title="{{ r.message }}">erro</span>
             {% endif %}
           </td>
-
-          <!-- Ação: agora texto "Análise" com o MESMO ícone (check) e HTMX para o gráfico -->
-          <td class="text-end">
-            <a class="btn btn-success btn-sm"
-               href="{% url 'pairs:zscore' pair.id r.window %}"
-               hx-get="{% url 'pairs:zscore' pair.id r.window %}"
-               hx-target="#zChartPane"
-               hx-indicator="#zChartSpinner"
-               hx-swap="innerHTML"
-               title="Abrir análise (gráfico Z-score) para {{ r.window }}d">
-              <i class="bi bi-check2-circle"></i> Análise
-            </a>
-          </td>
         </tr>
       {% empty %}
         <tr>
-          <td colspan="10" class="text-center py-4 text-body-secondary">Scanner sem resultados.</td>
+          <td colspan="9" class="text-center py-4 text-body-secondary">Scanner sem resultados.</td>
         </tr>
       {% endfor %}
     </tbody>
