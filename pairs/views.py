@@ -3,7 +3,8 @@ from django.shortcuts import render, get_object_or_404, redirect
 from django.http import HttpRequest, HttpResponse, HttpResponseBadRequest
 from django.views.decorators.http import require_GET, require_POST
 from django.contrib import messages
-from longshort.services.metrics import get_zscore_series
+from longshort.services.metrics import get_zscore_series, compute_pair_window_metrics
+
 from .models import Pair
 import json
 from .services.scan import (
@@ -56,23 +57,35 @@ def choose_window(request: HttpRequest, pair_id: int, window: int) -> HttpRespon
     messages.success(request, f"Janela {window} dias definida para o par #{pair.id}.")
     return redirect("pairs:home")
 
-
 @require_GET
 def zscore_chart(request: HttpRequest, pair_id: int, window: int) -> HttpResponse:
+    import json
     pair = get_object_or_404(Pair, pk=pair_id)
 
-    # usa a função real do service
-    from longshort.services.metrics import get_zscore_series
+    # Série do Z-score
     series = get_zscore_series(pair, window)
-    if not series:
-        return HttpResponse("<div class='text-body-secondary'>Sem dados suficientes para o gráfico.</div>")
+    labels = [d.strftime("%Y-%m-%d") for d, _ in series] if series else []
+    values = [z for _, z in series] if series else []
 
-    labels = [d.strftime("%Y-%m-%d") for d, _ in series]
-    values = [z for _, z in series]
+    # Métricas para mostrar no título
+    m = compute_pair_window_metrics(pair=pair, window=window)
+    adf_pct = None
+    if m.get("adf_pvalue") is not None:
+        adf_pct = (1.0 - float(m["adf_pvalue"])) * 100.0
 
-    return render(request, "pairs/_zscore_chart.html", {
+    context = {
         "pair": pair,
         "window": window,
         "labels_json": json.dumps(labels),
         "values_json": json.dumps(values),
-    })
+        "metrics": {
+            "beta": m.get("beta"),
+            "zscore": m.get("zscore"),
+            "half_life": m.get("half_life"),
+            "adf_pct": adf_pct,
+            "corr30": m.get("corr30"),
+            "corr60": m.get("corr60"),
+            "n_samples": m.get("n_samples"),
+        },
+    }
+    return render(request, "pairs/_zscore_chart.html", context)

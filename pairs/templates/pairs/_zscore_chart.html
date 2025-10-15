@@ -1,9 +1,35 @@
 {% load static %}
-<div class="mb-2">
-  <div class="fw-semibold">{{ pair }} — janela {{ window }}d</div>
+
+<div class="mb-2 d-flex flex-wrap align-items-center gap-2">
+  <div class="fw-semibold">
+    {{ pair }} — janela {{ window }}d
+  </div>
+
+  {% if metrics %}
+    <div class="text-muted small d-flex flex-wrap align-items-center gap-1">
+      {% if metrics.adf_pct is not None %}
+        <span class="badge text-bg-light">ADF% {{ metrics.adf_pct|floatformat:1 }}%</span>
+      {% endif %}
+      {% if metrics.beta is not None %}
+        <span class="badge text-bg-light">β {{ metrics.beta|floatformat:3 }}</span>
+      {% endif %}
+      {% if metrics.zscore is not None %}
+        <span class="badge text-bg-light">Z {{ metrics.zscore|floatformat:2 }}</span>
+      {% endif %}
+      {% if metrics.half_life is not None %}
+        <span class="badge text-bg-light">HL {{ metrics.half_life|floatformat:1 }}</span>
+      {% endif %}
+      {% if metrics.corr30 is not None and metrics.corr60 is not None %}
+        <span class="badge text-bg-light">Corr30/60 {{ metrics.corr30|floatformat:2 }} / {{ metrics.corr60|floatformat:2 }}</span>
+      {% endif %}
+      {% if metrics.n_samples %}
+        <span class="badge text-bg-light">n={{ metrics.n_samples }}</span>
+      {% endif %}
+    </div>
+  {% endif %}
 </div>
 
-<!-- altura do gráfico aumentada -->
+<!-- >>> AQUI VOLTA O CANVAS (altura 380px) <<< -->
 <div style="height:380px">
   <canvas id="zscoreCanvas-{{ pair.id }}-{{ window }}"></canvas>
 </div>
