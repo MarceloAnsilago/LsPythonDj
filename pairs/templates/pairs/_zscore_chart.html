@@ -1,0 +1,107 @@
+{% load static %}
+<div class="mb-2">
+  <div class="fw-semibold">{{ pair }} — janela {{ window }}d</div>
+</div>
+
+<!-- altura do gráfico aumentada -->
+<div style="height:380px">
+  <canvas id="zscoreCanvas-{{ pair.id }}-{{ window }}"></canvas>
+</div>
+
+<!-- Botão placeholder -->
+<div class="d-flex justify-content-end mt-2">
+  <a class="btn btn-warning btn-sm disabled"
+     href="#"
+     role="button"
+     aria-disabled="true"
+     title="Página de operação será implementada em breve">
+    <i class="bi bi-lightning-charge"></i> Operar
+  </a>
+</div>
+
+<script>
+(function () {
+  // Dados vindos da view (string -> JSON.parse para evitar erro de linter)
+  const labels = JSON.parse('{{ labels_json|escapejs }}');
+  const values = JSON.parse('{{ values_json|escapejs }}');
+  const canvasId = "zscoreCanvas-{{ pair.id }}-{{ window }}";
+
+  // Cria dataset de linha horizontal constante
+  function lineDataset(y, dashed, label) {
+    const arr = new Array(labels.length).fill(y);
+    const ds = {
+      label: label || ('y=' + y),
+      data: arr,
+      borderWidth: 1,
+      pointRadius: 0,
+      tension: 0,
+      fill: false
+    };
+    if (dashed) ds.borderDash = [6, 6];
+    return ds;
+  }
+
+  function drawChart() {
+    const el = document.getElementById(canvasId);
+    if (!el) return;
+    const ctx = el.getContext('2d');
+
+    if (window.__zscoreChart__) {
+      try { window.__zscoreChart__.destroy(); } catch (e) {}
+    }
+
+    window.__zscoreChart__ = new Chart(ctx, {
+      type: 'line',
+      data: {
+        labels: labels,
+        datasets: [
+          {
+            label: 'Z-score',
+            data: values,
+            borderWidth: 2,
+            pointRadius: 0,
+            tension: 0.2,
+            fill: false
+          },
+          // Referências: ±2 (sólidas), ±2.5/±3/±3.5 (pontilhadas)
+          lineDataset( 2.0, false, '+2σ'),
+          lineDataset(-2.0, false, '−2σ'),
+          lineDataset( 2.5, true , '+2.5σ'),
+          lineDataset(-2.5, true , '−2.5σ'),
+          lineDataset( 3.0, true , '+3σ'),
+          lineDataset(-3.0, true , '−3σ'),
+          lineDataset( 3.5, true , '+3.5σ'),
+          lineDataset(-3.5, true , '−3.5σ'),
+        ]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        interaction: { mode: 'index', intersect: false },
+        scales: {
+          x: { display: true, ticks: { maxTicksLimit: 8 } },
+          y: { display: true, title: { display: true, text: 'Z' } }
+        },
+        plugins: { legend: { display: false } }
+      }
+    });
+  }
+
+  function ensureChartJsThenDraw() {
+    if (window.Chart) { drawChart(); return; }
+    let script = document.getElementById('chartjs-lib');
+    if (!script) {
+      script = document.createElement('script');
+      script.id = 'chartjs-lib';
+      script.src = 'https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js';
+      script.async = true;
+      script.onload = drawChart;
+      document.head.appendChild(script);
+    } else {
+      script.addEventListener('load', drawChart, { once: true });
+    }
+  }
+
+  ensureChartJsThenDraw();
+})();
+</script>

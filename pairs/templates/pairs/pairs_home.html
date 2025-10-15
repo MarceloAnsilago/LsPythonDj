@@ -1,0 +1,78 @@
+{% extends "_base.html" %}
+{% load static %}
+
+{% block title %}Pares — LongShortDjango{% endblock %}
+
+{% block extra_head %}
+  <script src="https://unpkg.com/htmx.org@1.9.12"></script>
+{% endblock %}
+
+{% block content %}
+<div class="py-3">
+
+  <div class="d-flex align-items-center justify-content-between mb-3">
+    <h1 class="h4 mb-0">Pares</h1>
+
+    <div class="d-flex gap-2">
+      <!-- Caçar: diminui janelas até achar pelo menos 1 par -->
+      <form method="post" action="{% url 'pairs:refresh' %}?hunt=1" class="d-inline">
+        {% csrf_token %}
+        <button class="btn btn-outline-warning btn-sm" title="Diminuir janelas até achar pelo menos 1 par">
+          <i class="bi bi-fast-forward"></i> Caçar ({{ BASE_WINDOW }}→…)
+        </button>
+      </form>
+
+      <!-- Recalcular base -->
+      <form method="post" action="{% url 'pairs:refresh' %}" class="d-inline">
+        {% csrf_token %}
+        <button class="btn btn-outline-primary btn-sm">
+          <i class="bi bi-arrow-repeat"></i> Recalcular (base {{ BASE_WINDOW }}d)
+        </button>
+      </form>
+    </div>
+  </div>
+
+  <div class="row g-3">
+    <!-- Grid A -->
+    <div class="col-12 col-xl-6">
+      <div class="card shadow-sm rounded-4 soft-card">
+        <div class="card-header d-flex align-items-center justify-content-between card-header-compact">
+          <span class="fw-semibold">Grid A — Pares (janela-base {{ BASE_WINDOW }}d)</span>
+          <span class="text-body-secondary small">Soft UI + Dark Mode</span>
+        </div>
+
+        <div class="card-body p-0">
+          {% include "pairs/_pairs_table.html" with pairs=pairs %}
+        </div>
+      </div>
+    </div>
+
+    <!-- Grid B -->
+    <div class="col-12 col-xl-6">
+      <div class="card shadow-sm rounded-4 soft-card">
+        <div class="card-header d-flex align-items-center justify-content-between card-header-compact">
+          <span class="fw-semibold">Grid B — Scanner por janelas</span>
+          <div id="scanSpinner" class="htmx-indicator spinner-border spinner-border-sm" role="status" aria-hidden="true"></div>
+        </div>
+        <div class="card-body p-0" id="scanPane">
+          <div class="p-3 text-body-secondary">
+            Selecione um par no Grid A (<i class="bi bi-search"></i> Scan) para ver o scanner [160…220].
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== Z-score (aparece aqui após clicar no botão do Grid B) ===== -->
+  <div class="card shadow-sm rounded-4 soft-card mt-3">
+    <div class="card-header d-flex align-items-center justify-content-between card-header-compact">
+      <span class="fw-semibold">Z-score</span>
+      <div id="zChartSpinner" class="htmx-indicator spinner-border spinner-border-sm" role="status" aria-hidden="true"></div>
+    </div>
+    <div class="card-body" id="zChartPane">
+      <div class="text-body-secondary">Escolha um período no Scanner para carregar o gráfico.</div>
+    </div>
+  </div>
+
+</div>
+{% endblock %}

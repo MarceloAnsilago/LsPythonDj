@@ -4,9 +4,9 @@ from . import views
 app_name = "pairs"
 
 urlpatterns = [
-    path("", views.PairListView.as_view(), name="list"),
-    path("new/", views.PairCreateView.as_view(), name="create"),
-    path("<int:pk>/edit/", views.PairUpdateView.as_view(), name="edit"),
-    path("<int:pk>/delete/", views.PairDeleteView.as_view(), name="delete"),
-    path("generate-from-favorites/", views.generate_from_favorites, name="generate_from_favorites"),
+    path("", views.pairs_home, name="home"),
+    path("refresh/", views.refresh_pairs_base, name="refresh"),
+    path("scan/<int:pair_id>/", views.scan_windows, name="scan_windows"),  # ← ESTE NOME
+    path("choose/<int:pair_id>/<int:window>/", views.choose_window, name="choose"),
+    path("zscore/<int:pair_id>/<int:window>/", views.zscore_chart, name="zscore"),
 ]

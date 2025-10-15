@@ -1,36 +1,59 @@
-/* Soft UI: bordas suaves, sombras leves, tons equilibrados */
+/* Soft UI base */
 :root {
   --soft-radius: 0.9rem;
   --soft-shadow: 0 6px 16px rgba(0,0,0,.08);
+  --row-h: 42px;
+  --thead-h: 44px;
 }
-
 [data-bs-theme="dark"] {
   --bs-body-bg: #111418;
   --bs-body-color: #e4e6eb;
 }
 
-.soft-card,
-.card.soft-card {
-  border: 1px solid rgba(0,0,0,.06);
-  border-radius: var(--soft-radius);
-  box-shadow: var(--soft-shadow);
-}
+.soft-card, .card.soft-card { border:1px solid rgba(0,0,0,.06); border-radius:var(--soft-radius); box-shadow:var(--soft-shadow); }
+.navbar, .offcanvas, .card { border-radius: var(--soft-radius); }
+.offcanvas .nav-link { display:flex; align-items:center; gap:.5rem; }
+.offcanvas .nav-link.active { background: var(--bs-primary-bg-subtle, rgba(13,110,253,.12)); font-weight:600; }
+.badge.text-bg-secondary { opacity:.8; }
 
-.navbar,
-.offcanvas,
-.card {
-  border-radius: var(--soft-radius);
-}
+/* Tabelas compactas + sticky */
+.table-compact { font-size:.875rem; }
+.table-compact th, .table-compact td { padding:.35rem .5rem; vertical-align:middle; white-space:nowrap; }
+.table-compact tbody tr { height: var(--row-h); }              /* garante 7 linhas certinho */
+.table-compact td.text-center, .table-compact th.text-center { font-variant-numeric: tabular-nums; }
 
-.offcanvas .nav-link {
-  display: flex; align-items: center; gap: .5rem;
-}
+.table-sticky thead th { position:sticky; top:0; z-index:2; background:var(--bs-body-bg); }
+.sticky-col { position:sticky; left:0; z-index:1; background:var(--bs-body-bg); }
 
-.offcanvas .nav-link.active {
-  background: var(--bs-primary-bg-subtle, rgba(13,110,253,.12));
-  font-weight: 600;
+/* Área rolável com 7 linhas visíveis + HORIZONTAL */
+.card-scroll {
+  overflow-y:auto;         /* vertical */
+  overflow-x:auto;         /* horizontal -> barra inferior */
+  border-radius:0 0 .75rem .75rem;
 }
+.card-scroll.rows-7 { max-height: calc(var(--thead-h) + 7 * var(--row-h)); }
 
-.badge.text-bg-secondary {
-  opacity: .8;
-}
+/* Larguras das colunas (iguais nos dois grids) */
+.col-par     { min-width:220px; }
+.col-adf     { width:92px;  }
+.col-janela  { width:84px;  }
+.col-z       { width:80px;  }
+.col-half    { width:94px;  }
+.col-beta    { width:96px;  }
+.col-status  { width:90px;  }
+.col-actions { width:210px; }  /* cabe Análise + Scan lado a lado */
+
+/* Ações lado a lado */
+.actions-inline { display:flex; gap:.4rem; flex-wrap:nowrap; white-space:nowrap; }
+.actions-inline .btn.btn-sm { padding:.25rem .45rem; }
+
+/* Cabeçalho de card mais compacto */
+.card-header-compact { padding:.5rem .75rem; }
+
+/* Badges / Destaques */
+.badge-pill { border-radius:999px; padding:.3rem .5rem; }
+tr.table-primary > * { background-color: color-mix(in oklab, var(--bs-primary) 12%, var(--bs-body-bg)); }
+
+/* Scrollbar sutil (Chromium) */
+.card-scroll::-webkit-scrollbar { height:8px; width:8px; } /* height para barra inferior */
+.card-scroll::-webkit-scrollbar-thumb { background: color-mix(in oklab, var(--bs-body-color) 15%, transparent); border-radius:8px; }

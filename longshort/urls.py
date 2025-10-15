@@ -5,8 +5,12 @@ urlpatterns = [
     path("admin/", admin.site.urls),
 
     path("acoes/", include("acoes.urls")),
-    path("pairs/", include("pairs.urls")),
-    path("cotacoes/", include("cotacoes.urls")),  # << AQUI ANTES DO CORE
+    path("cotacoes/", include("cotacoes.urls")),
 
-    path("", include("core.urls")),               # << CORE POR ÚLTIMO
+    # 🔽 PARES ANTES DO CORE
+    path("pares/", include(("pairs.urls", "pairs"), namespace="pairs")),
+
+
+    # 🔽 CORE POR ÚLTIMO (catch-all da home e demais páginas gerais)
+    path("", include("core.urls")),
 ]

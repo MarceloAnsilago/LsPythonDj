@@ -1,77 +1,78 @@
-from django.shortcuts import render
-
-# Create your views here.from __future__ import annotations
-from itertools import combinations
+from __future__ import annotations
+from django.shortcuts import render, get_object_or_404, redirect
+from django.http import HttpRequest, HttpResponse, HttpResponseBadRequest
+from django.views.decorators.http import require_GET, require_POST
 from django.contrib import messages
-from django.contrib.auth.decorators import login_required
-from django.contrib.auth.mixins import LoginRequiredMixin
-from django.db import IntegrityError, transaction
-from django.shortcuts import redirect, render, get_object_or_404
-from django.urls import reverse, reverse_lazy
-from django.views.generic import ListView, CreateView, UpdateView, DeleteView
-
+from longshort.services.metrics import get_zscore_series
 from .models import Pair
-from .forms import PairForm
-from acoes.models import Asset, UserAsset  # já existem desde a SP3
+import json
+from .services.scan import (
+    scan_pair_windows,
+    DEFAULT_WINDOWS,
+    build_pairs_base,
+    BASE_WINDOW,  # use o BASE_WINDOW do service
+)
 
-class PairListView(LoginRequiredMixin, ListView):
-    model = Pair
-    template_name = "pairs/pair_list.html"
-    context_object_name = "pairs"
+@require_POST
+def refresh_pairs_base(request: HttpRequest) -> HttpResponse:
+    result = build_pairs_base(window=BASE_WINDOW, limit_assets=40)
+    ok = len(result.get("approved_ids", []))
+    errs = len(result.get("errors", []))
+    messages.info(request, f"Base {BASE_WINDOW}d: {ok} pares aprovados. Erros: {errs}.")
+    return redirect("pairs:home")
 
-    def get_queryset(self):
-        return Pair.objects.filter(owner=self.request.user).select_related("asset_a", "asset_b")
+@require_GET
+def pairs_home(request: HttpRequest) -> HttpResponse:
+    qs = Pair.objects.all().order_by("id")
+    # mostra só quem tem cache 'base' ok (ajuste se quiser ver todos)
+    pairs = [p for p in qs if (p.scan_cache_json or {}).get("base", {}).get("status") == "ok"]
+    context = {
+        "pairs": pairs,
+        "BASE_WINDOW": BASE_WINDOW,
+        "DEFAULT_WINDOWS": DEFAULT_WINDOWS,
+        "current": "pares",
+    }
+    return render(request, "pairs/pairs_home.html", context)
 
-class PairCreateView(LoginRequiredMixin, CreateView):
-    model = Pair
-    form_class = PairForm
-    template_name = "pairs/pair_form.html"
-    success_url = reverse_lazy("pairs:list")
+@require_GET
+def scan_windows(request: HttpRequest, pair_id: int) -> HttpResponse:
+    pair = get_object_or_404(Pair, pk=pair_id)
+    try:
+        result = scan_pair_windows(pair, DEFAULT_WINDOWS)
+    except Exception as e:
+        return HttpResponse(f"<div class='p-3 text-danger'>Erro no scan do par #{pair_id}: {e}</div>", status=500)
 
-    def form_valid(self, form):
-        form.instance.owner = self.request.user
-        try:
-            return super().form_valid(form)
-        except IntegrityError:
-            form.add_error(None, "Par já existe para este usuário.")
-            return self.form_invalid(form)
+    return render(request, "pairs/_scan_table.html", {
+        "pair": pair,
+        "rows": result["rows"],
+        "best": result["best"],
+    })
 
-class PairUpdateView(LoginRequiredMixin, UpdateView):
-    model = Pair
-    form_class = PairForm
-    template_name = "pairs/pair_form.html"
-    success_url = reverse_lazy("pairs:list")
+@require_GET
+def choose_window(request: HttpRequest, pair_id: int, window: int) -> HttpResponse:
+    pair = get_object_or_404(Pair, pk=pair_id)
+    pair.chosen_window = window
+    pair.save(update_fields=["chosen_window"])
+    messages.success(request, f"Janela {window} dias definida para o par #{pair.id}.")
+    return redirect("pairs:home")
 
-    def get_queryset(self):
-        return Pair.objects.filter(owner=self.request.user)
 
-class PairDeleteView(LoginRequiredMixin, DeleteView):
-    model = Pair
-    template_name = "pairs/pair_confirm_delete.html"
-    success_url = reverse_lazy("pairs:list")
+@require_GET
+def zscore_chart(request: HttpRequest, pair_id: int, window: int) -> HttpResponse:
+    pair = get_object_or_404(Pair, pk=pair_id)
 
-    def get_queryset(self):
-        return Pair.objects.filter(owner=self.request.user)
+    # usa a função real do service
+    from longshort.services.metrics import get_zscore_series
+    series = get_zscore_series(pair, window)
+    if not series:
+        return HttpResponse("<div class='text-body-secondary'>Sem dados suficientes para o gráfico.</div>")
 
-@login_required
-def generate_from_favorites(request):
-    """
-    Gera todos os pares nC2 com base nos favoritos (UserAsset) do usuário.
-    Respeita A<B, ignora existentes, e conta quantos foram criados.
-    """
-    fav_assets = Asset.objects.filter(userasset__user=request.user).distinct().order_by("id")
-    created = 0
-    with transaction.atomic():
-        for a, b in combinations(fav_assets, 2):
-            # garantir A<B por id
-            aa, bb = (a, b) if a.id < b.id else (b, a)
-            try:
-                Pair.objects.create(owner=request.user, asset_a=aa, asset_b=bb)
-                created += 1
-            except IntegrityError:
-                pass  # já existe
-    if created:
-        messages.success(request, f"{created} par(es) criado(s) a partir dos favoritos.")
-    else:
-        messages.info(request, "Nenhum novo par criado (talvez já existam).")
-    return redirect("pairs:list")
+    labels = [d.strftime("%Y-%m-%d") for d, _ in series]
+    values = [z for _, z in series]
+
+    return render(request, "pairs/_zscore_chart.html", {
+        "pair": pair,
+        "window": window,
+        "labels_json": json.dumps(labels),
+        "values_json": json.dumps(values),
+    })

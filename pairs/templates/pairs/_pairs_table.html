@@ -1,0 +1,110 @@
+<div class="table-responsive card-scroll rows-7">
+  <table class="table table-hover table-sm align-middle mb-0 table-compact table-sticky">
+    <colgroup>
+      <col class="col-par">
+      <col class="col-adf">
+      <col class="col-janela">
+      <col class="col-z">
+      <col class="col-half">
+      <col class="col-beta">
+      <col class="col-status">
+      <col class="col-actions">
+    </colgroup>
+
+    <thead class="table-light">
+      <tr class="text-secondary small">
+        <th class="sticky-col">Par</th>
+        <th class="text-center">ADF%</th>
+        <th class="text-center">Janela</th>
+        <th class="text-center">Z</th>
+        <th class="text-center">Half-life</th>
+        <th class="text-center">β</th>
+        <th class="text-center">Status</th>
+        <th class="text-end col-actions">Ações</th>
+      </tr>
+    </thead>
+
+    <tbody class="table-group-divider">
+      {% for pair in pairs %}
+        {% with cw=pair.chosen_window|default:BASE_WINDOW base=pair.scan_cache_json.base %}
+        <tr>
+          <!-- Par -->
+          <td class="sticky-col">
+            <div class="d-flex align-items-center gap-2">
+              <div class="fw-semibold text-truncate">{{ pair }}</div>
+            </div>
+          </td>
+
+          <!-- ADF% -->
+          <td class="text-center">
+            {% if base and base.status == "ok" and base.adf_pct %}
+              {{ base.adf_pct|floatformat:1 }}%
+            {% else %}
+              <span class="badge text-bg-secondary badge-pill">—</span>
+            {% endif %}
+          </td>
+
+          <!-- Janela atual -->
+          <td class="text-center">{{ cw }}d</td>
+
+          <!-- Z -->
+          <td class="text-center">
+            {% if base and base.status == "ok" and base.zscore is not None %}
+              {{ base.zscore|floatformat:2 }}
+            {% else %}—{% endif %}
+          </td>
+
+          <!-- Half-life -->
+          <td class="text-center">
+            {% if base and base.status == "ok" and base.half_life is not None %}
+              {{ base.half_life|floatformat:1 }}
+            {% else %}—{% endif %}
+          </td>
+
+          <!-- Beta -->
+          <td class="text-center">
+            {% if base and base.status == "ok" and base.beta is not None %}
+              {{ base.beta|floatformat:4 }}
+            {% else %}—{% endif %}
+          </td>
+
+          <!-- Status -->
+          <td class="text-center">
+            {% if base %}
+              {% if base.status == "ok" %}
+                <span class="badge text-bg-success badge-pill">ok</span>
+              {% elif base.status == "reprovado" %}
+                <span class="badge text-bg-warning badge-pill" title="{{ base.message|default:'reprovado' }}">reprovado</span>
+              {% else %}
+                <span class="badge text-bg-secondary badge-pill">{{ base.status }}</span>
+              {% endif %}
+            {% else %}
+              <span class="badge text-bg-secondary badge-pill">base</span>
+            {% endif %}
+          </td>
+
+          <!-- Ações (somente Scan) -->
+          <td class="text-end col-actions">
+            <span class="actions-inline">
+              <a
+                class="btn btn-primary btn-sm"
+                href="{% url 'pairs:scan_windows' pair.id %}"
+                hx-get="{% url 'pairs:scan_windows' pair.id %}"
+                hx-target="#scanPane"
+                hx-indicator="#scanSpinner"
+                hx-swap="innerHTML"
+                hx-push-url="false">
+                <i class="bi bi-search"></i> Scan
+              </a>
+            </span>
+          </td>
+        </tr>
+        {% endwith %}
+      {% empty %}
+        <tr>
+          <td colspan="8" class="text-center py-4 text-body-secondary">Nenhum par cadastrado.</td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>

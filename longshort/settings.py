@@ -42,12 +42,11 @@ INSTALLED_APPS = [
     # Apps do projeto
     'core',
     'acoes',
-    'pairs.apps.PairsConfig',   # 👈 ADICIONE ISTO
     'cotacoes',
-
     # Extras
     'django_htmx',
     'widget_tweaks',
+    'pairs',
 ]
 
 

@@ -11,8 +11,8 @@
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet">
 
-    <!-- Soft UI -->
-    <link href="{% static 'css/soft-ui.css' %}" rel="stylesheet">
+    <!-- Soft UI (com cache-bust) -->
+    <link href="{% static 'css/soft-ui.css' %}?v=4" rel="stylesheet">
 
     <!-- Tema (aplica e persiste claro/escuro) — APENAS UMA VEZ -->
     <script defer src="{% static 'js/theme.js' %}?v=5"></script>
@@ -20,7 +20,6 @@
     {% block extra_head %}{% endblock %}
   </head>
   <body class="bg-body-tertiary">
-
 
     <!-- Navbar -->
     <nav class="navbar navbar-expand-lg bg-body shadow-sm">
@@ -69,15 +68,15 @@
           </li>
           <li class="nav-item">
             <a class="nav-link d-flex align-items-center gap-2 {% if current == 'pares' %}active{% endif %}"
-               href="{% url 'core:pares' %}">
+               href="{% url 'pairs:home' %}">
               <i class="bi bi-shuffle"></i><span>Pares</span>
             </a>
           </li>
           <li class="nav-item">
-          <a class="nav-link d-flex align-items-center gap-2 {% if current == 'cotacoes' %}active{% endif %}"
-            href="{% url 'cotacoes:home' %}">
-            <i class="bi bi-graph-up-arrow"></i><span>Cotações</span>
-          </a>
+            <a class="nav-link d-flex align-items-center gap-2 {% if current == 'cotacoes' %}active{% endif %}"
+               href="{% url 'cotacoes:home' %}">
+              <i class="bi bi-graph-up-arrow"></i><span>Cotações</span>
+            </a>
           </li>
           <li class="nav-item">
             <a class="nav-link d-flex align-items-center gap-2 {% if current == 'analise' %}active{% endif %}"
@@ -134,8 +133,10 @@
 
     <!-- Bootstrap JS -->
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+
+    <!-- Scripts da app -->
+    <script src="{% static 'js/logo-fallback.js' %}?v=1"></script>
+
     {% block extra_js %}{% endblock %}
   </body>
 </html>
-{% load static %}
-<script src="{% static 'js/logo-fallback.js' %}"></script>
