@@ -1,32 +1,40 @@
-# cotacoes/views.py
 from __future__ import annotations
 
+from datetime import date, timedelta
 import pandas as pd
+
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.core.cache import cache
-from django.http import HttpRequest, HttpResponse, JsonResponse
-from django.shortcuts import redirect, render
+from django.http import HttpRequest, JsonResponse
+from django.shortcuts import render, redirect, get_object_or_404
 from django.urls import reverse_lazy
 from django.utils import timezone
-from django.views.decorators.http import require_GET, require_POST
+from django.views.decorators.http import require_http_methods, require_GET, require_POST
 from django.views.generic import ListView, TemplateView
 
 from acoes.models import Asset
 from .models import QuoteDaily, MissingQuoteLog
-from longshort.services.quotes import bulk_update_quotes
+
+from longshort.services.quotes import (
+    bulk_update_quotes,
+    scan_all_assets_and_fix,
+    find_missing_dates_for_asset,
+    try_fetch_single_date,
+    _date_to_unix,  # helper p/ montar link do Yahoo
+)
+
+@require_http_methods(["GET"])
 
 
-def _build_pivot_context(max_rows: int = 90):
+def _build_pivot_context(request: HttpRequest, max_rows: int = 90):
     qs = QuoteDaily.objects.select_related("asset").order_by("-date")
     if not qs.exists():
         return {"cols": [], "rows": []}
-
     df = pd.DataFrame(list(qs.values("date", "asset__ticker", "close")))
     if df.empty:
         return {"cols": [], "rows": []}
-
     df_pivot = (
         df.pivot(index="date", columns="asset__ticker", values="close")
           .sort_index(ascending=False)
@@ -34,7 +42,6 @@ def _build_pivot_context(max_rows: int = 90):
     )
     if max_rows:
         df_pivot = df_pivot.head(max_rows)
-
     cols = list(df_pivot.columns)
     rows = []
     for dt, row in df_pivot.iterrows():
@@ -43,6 +50,7 @@ def _build_pivot_context(max_rows: int = 90):
             "values": [("" if pd.isna(row[c]) else float(row[c])) for c in cols],
         })
     return {"cols": cols, "rows": rows}
+
 
 
 class QuotesHomeView(LoginRequiredMixin, TemplateView):
@@ -97,10 +105,11 @@ def update_quotes(request: HttpRequest):
     messages.success(request, f"Cotações atualizadas: {n_assets} ativos, {n_rows} linhas inseridas.")
     return redirect(reverse_lazy("cotacoes:home"))
 
-
 def quotes_pivot(request: HttpRequest):
-    pivot_ctx = _build_pivot_context(max_rows=None)
-    return render(request, "cotacoes/quote_pivot.html", {"cols": pivot_ctx["cols"], "data": pivot_ctx["rows"]})
+    pivot_ctx = _build_pivot_context(request, max_rows=None)  # ✅ passa request
+    return render(request, "cotacoes/quote_pivot.html",
+                  {"cols": pivot_ctx["cols"], "data": pivot_ctx["rows"]})
+
 
 
 @login_required
@@ -155,3 +164,94 @@ def update_live_quotes_view(request: HttpRequest):
 
     messages.success(request, f"Cotações ao vivo atualizadas: {n_updated}/{n_total} ativos.")
     return redirect("cotacoes:home")
+
+
+
+def faltantes(request):
+    return redirect("cotacoes:faltantes_home")
+
+@require_http_methods(["GET"])
+def faltantes_home(request):
+    """
+    Mostra a página e um botão 'Escanear e corrigir'.
+    Se já houver resultados em sessão (última execução), renderiza-os.
+    """
+    ctx = {
+        "current": "faltantes",
+        "results": request.session.pop("faltantes_results", None),
+    }
+    return render(request, "cotacoes/faltantes.html", ctx)
+
+@require_http_methods(["POST"])
+def faltantes_scan(request):
+    use_stooq = bool(request.POST.get("use_stooq"))
+    # exemplo limitando a janela a 18 meses (opcional):
+    results = scan_all_assets_and_fix(use_stooq=use_stooq, since_months=18)
+
+    n_fixed = sum(r["fixed"] for r in results)
+    n_remaining = sum(len(r["remaining"]) for r in results)
+    messages.info(request, f"Scanner concluído: {n_fixed} preenchido(s), {n_remaining} restante(s).")
+
+    request.session["faltantes_results"] = results
+    return redirect("cotacoes:faltantes_home")
+
+
+from django.shortcuts import render, redirect, get_object_or_404
+from django.views.decorators.http import require_http_methods
+from django.contrib import messages
+from acoes.models import Asset
+from longshort.services.quotes import (
+    find_missing_dates_for_asset,
+    try_fetch_single_date,
+)
+
+
+
+@require_http_methods(["GET"])
+def faltantes_detail(request, ticker: str):
+    asset = get_object_or_404(Asset, ticker=ticker.upper())
+    # reescaneia só esse ativo pra pegar a lista atualizada
+    missing = find_missing_dates_for_asset(asset)
+    # monta linhas com link pro Yahoo e ação de tentar baixar
+    rows = []
+    for d in missing:
+        period1 = _date_to_unix(d)  # usa helper do services (ou recrie aqui)
+        period2 = _date_to_unix(d + timedelta(days=1))
+        yahoo_url = f"https://finance.yahoo.com/quote/{ticker.upper()}.SA/history?period1={period1}&period2={period2}"
+        rows.append({"date": d, "yahoo_url": yahoo_url})
+    ctx = {
+        "current": "faltantes",
+        "ticker": ticker.upper(),
+        "rows": rows,
+    }
+    return render(request, "cotacoes/faltantes_detail.html", ctx)
+
+@require_http_methods(["POST"])
+def faltantes_fetch_one(request, ticker: str, dt: str):
+    asset = get_object_or_404(Asset, ticker=ticker.upper())
+    try:
+        d = date.fromisoformat(dt)
+    except Exception:
+        messages.error(request, f"Data inválida: {dt}")
+        return redirect("cotacoes:faltantes_detail", ticker=ticker)
+
+    ok = try_fetch_single_date(asset, d, use_stooq=True)
+    if ok:
+        messages.success(request, f"{ticker} {d} inserido com sucesso.")
+    else:
+        messages.warning(request, f"{ticker} {d}: não há dado nas fontes.")
+    return redirect("cotacoes:faltantes_detail", ticker=ticker)
+
+@require_http_methods(["POST"])
+def faltantes_insert_one(request, ticker: str):
+    asset = get_object_or_404(Asset, ticker=ticker.upper())
+    dt = request.POST.get("date")
+    px = request.POST.get("price")
+    try:
+        d = date.fromisoformat(dt)
+        price = float(px)
+        QuoteDaily.objects.create(asset=asset, date=d, close=price)
+        messages.success(request, f"Inserido manualmente: {ticker} {d} = {price:.2f}.")
+    except Exception as e:
+        messages.error(request, f"Falha ao inserir: {e}")
+    return redirect("cotacoes:faltantes_detail", ticker=ticker)

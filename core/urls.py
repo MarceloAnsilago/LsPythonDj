@@ -14,4 +14,5 @@ urlpatterns = [
     path("encerradas/", login_required(views.stub_page), {"page": "Encerradas"},  name="encerradas"),
     path("faltantes/",  login_required(views.stub_page), {"page": "Faltantes"},   name="faltantes"),
     path("config/",     login_required(views.stub_page), {"page": "Configurações"}, name="config"),
+    path("faltantes/", views.faltantes, name="faltantes"),
 ]

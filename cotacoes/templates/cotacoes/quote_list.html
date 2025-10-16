@@ -87,13 +87,12 @@
                   {% else %}
                     <div class="text-end">
                       <span class="badge text-bg-warning">pendente</span>
-                      <!-- Botão 'Verificar' (placeholder, sem ação por enquanto) -->
                       <div>
-                        <button type="button"
-                                class="btn btn-sm btn-warning mt-1"
-                                style="--bs-btn-padding-y:.10rem; --bs-btn-padding-x:.45rem; --bs-btn-font-size:.75rem;">
+                        <a href="{% url 'cotacoes:faltantes_detail' log.asset.ticker %}"
+                          class="btn btn-sm btn-warning mt-1"
+                          style="--bs-btn-padding-y:.10rem; --bs-btn-padding-x:.45rem; --bs-btn-font-size:.75rem;">
                           Verificar
-                        </button>
+                        </a>
                       </div>
                     </div>
                   {% endif %}

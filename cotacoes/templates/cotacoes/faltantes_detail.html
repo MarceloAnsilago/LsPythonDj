@@ -1,0 +1,52 @@
+{% extends "_base.html" %}
+{% block content %}
+<main class="container my-3">
+  <div class="card rounded-3 shadow-sm">
+    <div class="card-body">
+      <div class="d-flex justify-content-between align-items-center">
+        <h5 class="mb-0">Faltantes — {{ ticker }}</h5>
+        <a class="btn btn-outline-secondary btn-sm" href="{% url 'cotacoes:faltantes_home' %}">Voltar</a>
+      </div>
+      <hr>
+      {% if rows %}
+        <div class="table-responsive">
+          <table class="table table-sm align-middle text-nowrap">
+            <thead class="table-light">
+              <tr class="text-secondary small">
+                <th>Data</th>
+                <th>Yahoo</th>
+                <th class="text-end">Ações</th>
+              </tr>
+            </thead>
+            <tbody class="table-group-divider">
+              {% for r in rows %}
+                <tr>
+                  <td>{{ r.date }}</td>
+                  <td>
+                    <a href="{{ r.yahoo_url }}" target="_blank" rel="noopener">Abrir no Yahoo</a>
+                  </td>
+                  <td class="text-end">
+                    <form method="post" action="{% url 'cotacoes:faltantes_fetch_one' ticker r.date %}" class="d-inline">
+                      {% csrf_token %}
+                      <button class="btn btn-outline-primary btn-sm" type="submit">Tentar baixar</button>
+                    </form>
+                    <form method="post" action="{% url 'cotacoes:faltantes_insert_one' ticker %}" class="d-inline ms-1"> MBRF3
+                      {% csrf_token %}
+                      <input type="hidden" name="date" value="{{ r.date }}">
+                      <input type="number" name="price" step="0.01" placeholder="Preço" class="form-control form-control-sm d-inline-block" style="width:110px">
+                      <button class="btn btn-outline-success btn-sm" type="submit">Inserir</button>
+                    </form>
+                  </td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        <small class="text-muted">Dica: use “Tentar baixar” antes de inserir manualmente.</small>
+      {% else %}
+        <div class="alert alert-success mb-0">Sem faltantes para {{ ticker }} 🎉</div>
+      {% endif %}
+    </div>
+  </div>
+</main>
+{% endblock %}

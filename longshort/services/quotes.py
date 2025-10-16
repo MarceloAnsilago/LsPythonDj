@@ -311,3 +311,297 @@ def update_single_asset(ticker_b3: str, period: str = "2y", interval: str = "1d"
         print(f"[{i}/{tot}] {t} -> {st} ({rows})")
 
     return bulk_update_quotes([asset], period=period, interval=interval, progress_cb=_p, use_stooq=False)
+
+# ============================================================
+# 🔎 Scanner de buracos (faltantes) e tentativa de correção
+# ============================================================
+
+from datetime import date, timedelta
+import pandas as pd
+from django.db.models import Min, Max
+from acoes.models import Asset
+from datetime import datetime
+from django.utils.timezone import make_naive
+from django.db import IntegrityError
+
+# ---------- FERIADOS B3 DINÂMICOS (qualquer ano) ----------
+def _easter_date(year: int) -> date:
+    # Meeus/Jones/Butcher
+    a = year % 19
+    b = year // 100
+    c = year % 100
+    d = b // 4
+    e = b % 4
+    f = (b + 8) // 25
+    g = (b - f + 1) // 3
+    h = (19 * a + b - d - g + 15) % 30
+    i = c // 4
+    k = c % 4
+    l = (32 + 2 * e + 2 * i - h - k) % 7
+    m = (a + 11 * h + 22 * l) // 451
+    month = (h + l - 7 * m + 114) // 31
+    day = ((h + l - 7 * m + 114) % 31) + 1
+    return date(year, month, day)
+
+def _b3_holidays_for_year(year: int) -> set[date]:
+    pascoa = _easter_date(year)
+    carnaval_seg = pascoa - timedelta(days=48)
+    carnaval_ter = pascoa - timedelta(days=47)
+    sexta_santa = pascoa - timedelta(days=2)
+    corpus_christi = pascoa + timedelta(days=60)
+    fixed = {
+        date(year, 1, 1),    # Confraternização
+        date(year, 4, 21),   # Tiradentes
+        date(year, 5, 1),    # Dia do Trabalho
+        date(year, 9, 7),    # Independência
+        date(year,10,12),    # N. Sra. Aparecida
+        date(year,11,2),     # Finados
+        date(year,11,15),    # Proclamação da República
+        date(year,11,20),    # Consciência Negra (B3 tem fechado)
+        date(year,12,25),    # Natal
+        date(year,12,24),    # Véspera (B3 não abre)
+        date(year,12,31),    # Véspera (B3 não abre)
+    }
+    mobile = {carnaval_seg, carnaval_ter, sexta_santa, corpus_christi}
+    return fixed | mobile
+
+def b3_holidays_between(start: date, end: date) -> set[date]:
+    years = range(start.year, end.year + 1)
+    out: set[date] = set()
+    for y in years:
+        out |= _b3_holidays_for_year(y)
+    return {d for d in out if start <= d <= end}
+
+def _business_days(start: date, end: date) -> list[date]:
+    """Dias de negociação: seg–sex excluindo feriados B3 (qualquer ano)."""
+    if start > end:
+        return []
+    rng = pd.date_range(start, end, freq="B")
+    holidays = b3_holidays_between(start, end)
+    return [d.date() for d in rng if d.date() not in holidays]
+
+# ---------- INTERVALOS A IGNORAR (halts/eventos por ticker) ----------
+# preencha conforme necessário; exemplo para BRFS3:
+IGNORED_RANGES: dict[str, list[tuple[date, date]]] = {
+    # "BRFS3": [(date(2025, 9, 23), date(2025, 10, 2))],
+}
+
+def _ignored_days_for_ticker(ticker: str) -> set[date]:
+    out: set[date] = set()
+    for (ini, fim) in IGNORED_RANGES.get(ticker.upper(), []):
+        if ini and fim and ini <= fim:
+            for d in pd.date_range(ini, fim, freq="D"):
+                out.add(d.date())
+    return out
+
+# ---------- SCANNER ----------
+def find_missing_dates_for_asset(
+    asset,
+    *,
+    since_months: int | None = None,
+    until: date | None = None,
+) -> list[date]:
+    """
+    Datas faltantes (dias de negociação) em QuoteDaily para o ativo.
+    - Se since_months for fornecido, limita a janela aos últimos N meses.
+    - until padrão: hoje.
+    - Ignora feriados B3 e intervalos por ticker (IGNORED_RANGES).
+    """
+    qs = QuoteDaily.objects.filter(asset=asset)
+
+    # Sem nenhum dado: não tratamos como "buraco" (inicialização pelo botão principal)
+    bounds = qs.aggregate(min_dt=Min("date"), max_dt=Max("date"))
+    min_dt, _ = bounds["min_dt"], bounds["max_dt"]
+    if not min_dt:
+        return []
+
+    if until is None:
+        until = date.today()
+
+    start = min_dt
+    if since_months:
+        # Janela deslizante: últimos N meses
+        approx_days = int(since_months * 30.44)
+        start = max(min_dt, until - timedelta(days=approx_days))
+
+    expected = set(_business_days(start, until))
+
+    # remove dias ignorados específicos do ticker
+    ticker = getattr(asset, "ticker", "").upper()
+    expected -= _ignored_days_for_ticker(ticker)
+
+    existing = set(qs.values_list("date", flat=True))
+    missing = sorted(expected - existing)
+    return missing
+
+def try_fill_missing_for_asset(
+    asset,
+    missing_dates: list[date],
+    *,
+    use_stooq: bool = False,
+) -> tuple[int, list[date]]:
+    """
+    Tenta preencher datas faltantes para um ativo.
+    Baixa um bloco (Yahoo; Stooq opcional) e insere apenas as faltantes.
+    Retorna: (n_inseridos, restantes).
+    """
+    if not missing_dates:
+        return 0, []
+
+    lo = min(missing_dates) - timedelta(days=2)
+    hi = max(missing_dates) + timedelta(days=2)
+
+    remaining = set(missing_dates)
+    to_insert: list[QuoteDaily] = []
+    inserted = 0
+
+    # ---- Yahoo ----
+    try:
+        df = yf.download(
+            tickers=_yf_symbol(getattr(asset, "ticker", "").upper()),
+            start=lo.isoformat(),
+            end=(hi + timedelta(days=1)).isoformat(),  # end exclusivo
+            interval="1d",
+            auto_adjust=False,
+            progress=False,
+            threads=False,
+            group_by="column",
+        )
+        s_close = _yf_close_series(df)
+        if s_close is not None and not s_close.empty:
+            for dt, px in s_close.items():
+                if dt in remaining and pd.notna(px):
+                    try:
+                        to_insert.append(QuoteDaily(asset=asset, date=dt, close=float(px)))
+                        remaining.discard(dt)
+                    except Exception:
+                        remaining.discard(dt)
+    except Exception as e:
+        print(f"[faltantes][yahoo] {asset} erro: {e}")
+
+    # ---- Stooq (opcional, só se nada entrou via Yahoo) ----
+    if not to_insert and use_stooq and remaining:
+        try:
+            df_stq = fetch_stooq_df(getattr(asset, "ticker", ""))
+            if isinstance(df_stq, pd.DataFrame) and not getattr(df_stq, "empty", True):
+                s = df_stq["Close"].dropna().copy()
+                s.index = pd.to_datetime(s.index).date
+                for dt in list(remaining):
+                    if dt in s.index:
+                        try:
+                            to_insert.append(QuoteDaily(asset=asset, date=dt, close=float(s.loc[dt])))
+                            remaining.discard(dt)
+                        except Exception:
+                            remaining.discard(dt)
+        except Exception as e:
+            print(f"[faltantes][stooq] {asset} erro: {e}")
+
+    # ---- Persistência em lote ----
+    if to_insert:
+        try:
+            QuoteDaily.objects.bulk_create(to_insert, ignore_conflicts=True, batch_size=1000)
+            inserted = len(to_insert)
+        except Exception as e:
+            # fallback caso algum banco não suporte ignore_conflicts
+            print(f"[faltantes][bulk_create] erro: {e}")
+            inserted = 0
+
+    # ---- Logs simpáticos ----
+    try:
+        if inserted > 0:
+            MissingQuoteLog.objects.create(
+                asset=asset,
+                reason="gap_fix",
+                detail=f"Preenchidos {inserted} buraco(s) pelo scanner.",
+                resolved_bool=True,
+            )
+        if remaining:
+            # mostra só as 12 primeiras pra não poluir
+            tail = sorted(remaining)[:12]
+            MissingQuoteLog.objects.create(
+                asset=asset,
+                reason="gap_remaining",
+                detail=f"Restando {len(remaining)} data(s): {tail}{' ...' if len(remaining) > 12 else ''}",
+                resolved_bool=False,
+            )
+    except Exception:
+        pass
+
+    return inserted, sorted(remaining)
+
+def scan_all_assets_and_fix(
+    *,
+    use_stooq: bool = False,
+    since_months: int | None = None,
+    tickers: list[str] | None = None,
+):
+    """
+    Varre ativos, tenta corrigir buracos e retorna lista serializável:
+    [{ticker, missing_before, fixed, remaining:[YYYY-MM-DD,...]}]
+    - since_months: limitar janela (p.ex. 18 = últimos 18 meses).
+    - tickers: filtrar um subconjunto (strings, ex.: ["BRFS3","PETR4"]).
+    """
+    try:
+        qs = Asset.objects.filter(is_active=True)
+    except Exception:
+        qs = Asset.objects.all()
+
+    if tickers:
+        qs = qs.filter(ticker__in=[t.upper() for t in tickers])
+
+    results = []
+    for asset in qs.order_by("ticker"):
+        missing = find_missing_dates_for_asset(asset, since_months=since_months)
+        fixed, remaining = try_fill_missing_for_asset(asset, missing, use_stooq=use_stooq)
+        results.append({
+            "ticker": getattr(asset, "ticker", ""),
+            "missing_before": int(len(missing)),
+            "fixed": int(fixed),
+            "remaining": [d.isoformat() for d in remaining],  # ✅ serializável
+        })
+    return results
+
+def _date_to_unix(d: date) -> int:
+    # Yahoo usa epoch (UTC) nos parâmetros period1/period2
+    return int(datetime(d.year, d.month, d.day).timestamp())
+
+def try_fetch_single_date(asset, d: date, *, use_stooq: bool = True) -> bool:
+    """Tenta inserir apenas a data d para o ativo."""
+    # 1) Yahoo
+    try:
+        df = yf.download(
+            tickers=_yf_symbol(getattr(asset, "ticker", "").upper()),
+            start=d.isoformat(),
+            end=(d + timedelta(days=1)).isoformat(),
+            interval="1d",
+            auto_adjust=False,
+            progress=False,
+            threads=False,
+            group_by="column",
+        )
+        s_close = _yf_close_series(df)
+        if s_close is not None and not s_close.empty and d in s_close.index:
+            px = float(s_close.loc[d])
+            QuoteDaily.objects.create(asset=asset, date=d, close=px)
+            return True
+    except IntegrityError:
+        return True
+    except Exception as e:
+        print(f"[fetch_one][yahoo] {asset} {d} erro: {e}")
+
+    # 2) Stooq (fallback)
+    if use_stooq:
+        try:
+            df_stq = fetch_stooq_df(getattr(asset, "ticker", ""))
+            if isinstance(df_stq, pd.DataFrame) and "Close" in df_stq.columns:
+                s = df_stq["Close"].dropna().copy()
+                s.index = pd.to_datetime(s.index).date
+                if d in s.index:
+                    QuoteDaily.objects.create(asset=asset, date=d, close=float(s.loc[d]))
+                    return True
+        except IntegrityError:
+            return True
+        except Exception as e:
+            print(f"[fetch_one][stooq] {asset} {d} erro: {e}")
+
+    return False

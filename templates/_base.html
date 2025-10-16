@@ -98,7 +98,7 @@
           </li>
           <li class="nav-item">
             <a class="nav-link d-flex align-items-center gap-2 {% if current == 'faltantes' %}active{% endif %}"
-               href="{% url 'core:faltantes' %}">
+              href="{% url 'cotacoes:faltantes_home' %}">   {# 👈 troque core:faltantes por cotacoes:faltantes_home #}
               <i class="bi bi-exclamation-triangle"></i><span>Faltantes</span>
             </a>
           </li>

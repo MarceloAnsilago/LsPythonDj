@@ -1,0 +1,76 @@
+{% extends "_base.html" %}
+{% load static %}
+{% block content %}
+<main class="container my-3">
+  <div class="card rounded-3 shadow-sm mb-3">
+    <div class="card-body d-flex justify-content-between align-items-center">
+      <div>
+        <h5 class="mb-0">Faltantes</h5>
+        <small class="text-muted">Escaneia buracos (dias úteis), tenta corrigir e reporta.</small>
+      </div>
+      <form method="post" action="{% url 'cotacoes:faltantes_scan' %}" class="d-flex align-items-center gap-2">
+        {% csrf_token %}
+        <div class="form-check form-switch">
+          <input class="form-check-input" type="checkbox" role="switch" id="useStooq" name="use_stooq">
+          <label class="form-check-label small" for="useStooq">Tentar Stooq se Yahoo falhar</label>
+        </div>
+        <button class="btn btn-outline-primary" type="submit">
+          <i class="bi bi-search"></i> Escanear e corrigir
+        </button>
+      </form>
+    </div>
+  </div>
+
+  {% if results %}
+    <div class="card rounded-3 shadow-sm">
+      <div class="card-header bg-transparent">
+        <strong>Resultado da última varredura</strong>
+      </div>
+      <div class="card-body">
+        <div class="table-responsive">
+          <table class="table table-hover table-sm align-middle text-nowrap">
+            <thead class="table-light">
+              <tr class="text-secondary small">
+                <th>Ativo</th>
+                <th class="text-center">Faltantes (antes)</th>
+                <th class="text-center">Corrigidos</th>
+                <th>Restantes (datas)</th>
+                <th class="text-end" style="width:120px;">Ação</th>
+              </tr>
+            </thead>
+                <tbody class="table-group-divider">
+                {% for r in results %}
+                    {% if r.remaining|length > 0 %}
+                    <tr>
+                        <td>
+                        <a href="{% url 'cotacoes:faltantes_detail' r.ticker %}" class="text-decoration-none">
+                            <span class="badge text-bg-secondary">{{ r.ticker }}</span>
+                        </a>
+                        </td>
+                        <td class="text-center">{{ r.missing_before }}</td>
+                        <td class="text-center">{{ r.fixed }}</td>
+                        <td class="small">{{ r.remaining|join:", " }}</td>
+                        <td class="text-end">
+                        <a class="btn btn-outline-primary btn-sm"
+                            href="{% url 'cotacoes:faltantes_detail' r.ticker %}">
+                            Ver / Corrigir
+                        </a>
+                        </td>
+                    </tr>
+                    {% endif %}
+                {% empty %}
+                    <tr><td colspan="5" class="text-center text-muted">Nada a exibir.</td></tr>
+                {% endfor %}
+                </tbody>
+          </table>
+        </div>
+        <small class="text-muted">Dica: marque “Tentar Stooq” se o Yahoo não preencher.</small>
+      </div>
+    </div>
+  {% else %}
+    <div class="alert alert-secondary">
+      Clique em <strong>Escanear e corrigir</strong> para gerar o relatório.
+    </div>
+  {% endif %}
+</main>
+{% endblock %}
