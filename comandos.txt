@@ -1,6 +1,6 @@
-python manage.py runserver
-& .\venv\Scripts\Activate.ps1 
 
+& .\venv\Scripts\Activate.ps1 
+python manage.py runserver
 
 celosmg1@gmail.com
 Admin

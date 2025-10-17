@@ -1,0 +1,108 @@
+{% comment %}
+Snippet usado no retorno do hunt_start e no polling do hunt_status.
+NÃO estende _base.html. É apenas um pedaço de HTML.
+{% endcomment %}
+
+<div
+  id="huntStatus"
+  {% if job_id %}
+    hx-get="{% url 'pairs:hunt_status' job_id %}"
+    hx-trigger="every 1s"
+    hx-swap="outerHTML"
+  {% endif %}
+  class="mb-2">
+
+  {% if not data %}
+    <div class="alert alert-secondary py-2 mb-0 shadow-sm rounded-3">
+      <div class="d-flex align-items-center gap-2">
+        <div class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></div>
+        <div>Iniciando caça…</div>
+      </div>
+    </div>
+
+  {% else %}
+
+    {% if data.state == "running" %}
+      <div class="alert alert-info py-2 mb-2 shadow-sm rounded-3">
+        <div class="d-flex align-items-center justify-content-between">
+          <div class="fw-semibold">
+            Caçando
+            {% if data.window %} — janela <code>{{ data.window }}d</code>{% endif %}
+            {% if data.left and data.right %} — {{ data.left }} — {{ data.right }}{% endif %}
+          </div>
+          <div class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></div>
+        </div>
+
+        {% if data.total %}
+          {# pct = (i / total) * 100 em inteiro #}
+          {% widthratio data.i|default:0 data.total 100 as pct %}
+    <div class="progress mt-2" role="progressbar"
+      aria-valuemin="0" aria-valuemax="{{ data.total }}"
+      aria-valuenow="{{ data.i|default:0 }}"
+      style="height: 0.9rem;">
+      <div class="progress-bar progress-bar-striped progress-bar-animated bg-info"
+        data-width="{{ pct }}"></div>
+    </div>
+          <div class="mt-1 small text-body-secondary">
+            {{ data.i|default:0 }}/{{ data.total }} — {{ pct }}%
+          </div>
+        {% else %}
+          <div class="progress mt-2" style="height: 0.9rem;">
+              <div class="progress-bar progress-bar-striped progress-bar-animated bg-info" style="width: 100%;"></div>
+          </div>
+        {% endif %}
+      </div>
+
+    {% elif data.state == "done" %}
+      <div class="alert alert-success py-2 mb-2 shadow-sm rounded-3">
+        {% with r=data.result %}
+          {% if r.found %}
+            ✅ Encontrados {{ r.approved_ids|length }} pares na janela {{ r.window }}d.
+          {% else %}
+            😕 Nenhum par aprovado nas janelas testadas.
+          {% endif %}
+        {% endwith %}
+        <div class="mt-2">
+          <a class="btn btn-sm btn-success-subtle border-success-subtle" href="{% url 'pairs:home' %}">
+            Atualizar página
+          </a>
+        </div>
+      </div>
+
+    {% elif data.state == "error" %}
+      <div class="alert alert-danger py-2 mb-2 shadow-sm rounded-3">
+        Erro na caça: {{ data.error }}
+      </div>
+
+    {% else %}
+      <div class="alert alert-secondary py-2 mb-2 shadow-sm rounded-3">
+        Aguardando…
+      </div>
+    {% endif %}
+
+  {% endif %}
+</div>
+
+<script>
+  // Ensure we set progress-bar width from data-width when using template expressions
+  (function(){
+    try {
+      var root = document.getElementById('huntStatus');
+      if (!root) return;
+      var bars = root.querySelectorAll('.progress-bar[data-width]');
+      bars.forEach(function(bar){
+        var w = bar.getAttribute('data-width');
+        if (w !== null) {
+          // Ensure numeric and clamp between 0 and 100
+          var n = Number(w) || 0;
+          if (n < 0) n = 0;
+          if (n > 100) n = 100;
+          bar.style.width = n + '%';
+        }
+      });
+    } catch (e) {
+      // fail silently; this script is just an enhancement to avoid template CSS linting errors
+      console && console.warn && console.warn('huntStatus script error', e);
+    }
+  })();
+</script>

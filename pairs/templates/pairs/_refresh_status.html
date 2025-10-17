@@ -1,0 +1,100 @@
+{% comment %}
+Status do "Recalcular base". Snippet com polling via HTMX e barra de progresso.
+{% endcomment %}
+
+<div
+  id="refreshStatus"
+  {% if job_id %}
+    hx-get="{% url 'pairs:refresh_status' job_id %}"
+    hx-trigger="every 1s"
+    hx-swap="outerHTML"
+  {% endif %}
+  class="mb-2">
+
+  {% if not data %}
+    <div class="alert alert-secondary py-2 mb-0 shadow-sm rounded-3">
+      <div class="d-flex align-items-center gap-2">
+        <div class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></div>
+        <div>Iniciando recálculo da base {{ BASE_WINDOW }}d…</div>
+      </div>
+    </div>
+
+  {% else %}
+
+    {% if data.state == "starting" or data.state == "running" %}
+      <div class="alert alert-primary py-2 mb-2 shadow-sm rounded-3">
+        <div class="d-flex align-items-center justify-content-between">
+          <div>
+            <span class="fw-semibold">Recalculando base {{ BASE_WINDOW }}d</span>
+            {% if data.left and data.right %} — {{ data.left }} — {{ data.right }}{% endif %}
+            {% if data.window %} — janela <code>{{ data.window }}d</code>{% endif %}
+          </div>
+          <div class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></div>
+        </div>
+
+        {% if data.total %}
+          {% widthratio data.i|default:0 data.total 100 as pct %}
+    <div class="progress mt-2" role="progressbar"
+      aria-valuemin="0" aria-valuemax="{{ data.total }}"
+      aria-valuenow="{{ data.i|default:0 }}"
+      style="height: 0.9rem;">
+      <div class="progress-bar progress-bar-striped progress-bar-animated bg-primary"
+        data-width="{{ pct }}"></div>
+    </div>
+          <div class="mt-1 small text-body-secondary">
+            {{ data.i|default:0 }}/{{ data.total }} — {{ pct }}%
+          </div>
+        {% else %}
+          <div class="progress mt-2" style="height: 0.9rem;">
+            <div class="progress-bar progress-bar-striped progress-bar-animated bg-primary" style="width: 100%;"></div>
+          </div>
+        {% endif %}
+      </div>
+
+    {% elif data.state == "done" %}
+      <div class="alert alert-success py-2 mb-2 shadow-sm rounded-3">
+        Base {{ BASE_WINDOW }}d concluída —
+        <strong>{{ data.ok|default:0 }}</strong> pares aprovados,
+        <strong>{{ data.errs|default:0 }}</strong> erros.
+        <div class="mt-2">
+          <a class="btn btn-sm btn-success-subtle border-success-subtle" href="{% url 'pairs:home' %}">
+            Atualizar página
+          </a>
+        </div>
+      </div>
+
+    {% elif data.state == "error" %}
+      <div class="alert alert-danger py-2 mb-2 shadow-sm rounded-3">
+        Erro ao recalcular: {{ data.error }}
+      </div>
+
+    {% else %}
+      <div class="alert alert-secondary py-2 mb-2 shadow-sm rounded-3">
+        Aguardando…
+      </div>
+    {% endif %}
+
+  {% endif %}
+</div>
+
+<script>
+  // Ensure we set progress-bar width from data-width when using template expressions
+  (function(){
+    try {
+      var root = document.getElementById('refreshStatus');
+      if (!root) return;
+      var bars = root.querySelectorAll('.progress-bar[data-width]');
+      bars.forEach(function(bar){
+        var w = bar.getAttribute('data-width');
+        if (w !== null) {
+          var n = Number(w) || 0;
+          if (n < 0) n = 0;
+          if (n > 100) n = 100;
+          bar.style.width = n + '%';
+        }
+      });
+    } catch (e) {
+      console && console.warn && console.warn('refreshStatus script error', e);
+    }
+  })();
+</script>

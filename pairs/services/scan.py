@@ -1,6 +1,7 @@
 from __future__ import annotations
+
 from dataclasses import dataclass
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Callable
 import math
 from itertools import combinations
 
@@ -25,8 +26,13 @@ HALF_LIFE_MAX = 30
 CORR_MIN = 0.5
 
 # Janelas padrão
+# Grid B (Scanner): 11 janelas de 80 a 180 (passo 10)
 DEFAULT_WINDOWS = [80, 90, 100, 110, 120, 130, 140, 150, 160, 170, 180]
-BASE_WINDOW =180
+# Grid A (Base)
+BASE_WINDOW = 180
+
+# Tipo do evento de progresso (para callback opcional)
+ProgressEvent = Dict[str, Any]  # ex.: {"phase": "scanning_assets", "window": 180, "i": 12, "total": 300, "left": "ITUB4", "right": "BBDC4"}
 
 
 @dataclass
@@ -41,18 +47,6 @@ class WindowRow:
     corr60: Optional[float]
     status: str
     message: str
-
-
-def _qualifica(row: WindowRow) -> bool:
-    if row.adf_pct is None or row.half_life is None or row.corr30 is None or row.corr60 is None:
-        return False
-    if row.adf_pct < ADF_MIN:
-        return False
-    if not (HALF_LIFE_MIN <= row.half_life <= HALF_LIFE_MAX):
-        return False
-    if min(row.corr30, row.corr60) < CORR_MIN:
-        return False
-    return True
 
 
 def _tie_break(best: WindowRow | None, candidate: WindowRow | None) -> WindowRow | None:
@@ -197,12 +191,17 @@ def _compute_base_for_pair(pair: Pair, window: int = BASE_WINDOW) -> tuple[bool,
         return False, {}, f"erro: {e}"
 
 
-def build_pairs_base(window: int = BASE_WINDOW,
-                     limit_assets: int | None = None) -> Dict[str, Any]:
+def build_pairs_base(
+    window: int = BASE_WINDOW,
+    limit_assets: int | None = None,
+    progress_cb: Optional[Callable[[Dict[str, Any]], None]] = None,
+) -> Dict[str, Any]:
     """
     Varre Asset, testa combinações 2-a-2 na janela-base e **só persiste**
     os pares aprovados pelos thresholds.
+    Emite progresso via progress_cb({"phase":"iter","i":int,"total":int,"left":str,"right":str,"window":int}).
     """
+
     # Universo de ativos
     try:
         qs = Asset.objects.filter(is_active=True)
@@ -215,12 +214,27 @@ def build_pairs_base(window: int = BASE_WINDOW,
         qs = qs.order_by("id")[:limit_assets]
 
     assets = list(qs)
+    n = len(assets)
+    total = (n * (n - 1)) // 2 if n >= 2 else 0
+    i = 0
+
     created = 0
     updated = 0
     approved_ids: List[int] = []
     errors: List[str] = []
 
     for left, right in combinations(assets, 2):
+        i += 1
+        if progress_cb:
+            progress_cb({
+                "phase": "iter",
+                "i": i,
+                "total": total,
+                "left": getattr(left, "ticker", str(left)),
+                "right": getattr(right, "ticker", str(right)),
+                "window": window,
+            })
+
         pair = Pair.objects.filter(left=left, right=right).first()
         was_created = False
         just_created = False
@@ -266,6 +280,9 @@ def build_pairs_base(window: int = BASE_WINDOW,
                     pass
             errors.append(f"Pair {getattr(left,'ticker','?')}-{getattr(right,'ticker','?')}: {e}")
 
+    if progress_cb:
+        progress_cb({"phase": "done", "i": i, "total": total, "window": window})
+
     return {"created": created, "updated": updated, "approved_ids": approved_ids, "errors": errors}
 
 
@@ -273,7 +290,8 @@ def hunt_pairs_until_found(
     windows_desc: List[int] | None = None,
     *,
     source: str = "assets",        # "assets" (todas combinações) ou "existing_pairs"
-    limit_assets: int | None = None
+    limit_assets: int | None = None,
+    progress_cb: Optional[Callable[[ProgressEvent], None]] = None,
 ) -> Dict[str, Any]:
     """
     Diminui a janela (ex.: [180,170,160,...,80]) e, para cada janela, tenta aprovar pares.
@@ -294,28 +312,36 @@ def hunt_pairs_until_found(
         # Mantém o mesmo número de períodos (11), começando em 180 e descendo de 10 em 10 até 80
         windows_desc = [180, 170, 160, 150, 140, 130, 120, 110, 100, 90, 80]
 
-    scanned = []
+    scanned: List[int] = []
     all_errors: List[str] = []
 
     if source == "assets":
-        # usa o pipeline já pronto
         for w in windows_desc:
             scanned.append(w)
-            res = build_pairs_base(window=w, limit_assets=limit_assets)
+            if progress_cb:
+                progress_cb({"phase": "window_start", "window": w})
+
+            res = build_pairs_base(window=w, limit_assets=limit_assets, progress_cb=progress_cb)
             if res.get("errors"):
                 all_errors.extend(res["errors"])
             approved = res.get("approved_ids", [])
+
             if approved:
+                if progress_cb:
+                    progress_cb({"phase": "done", "window": w, "approved": len(approved)})
                 return {
-                    "found": True, "window": w,
+                    "found": True,
+                    "window": w,
                     "approved_ids": approved,
                     "errors": all_errors,
-                    "scanned_windows": scanned
+                    "scanned_windows": scanned,
                 }
+
+        if progress_cb:
+            progress_cb({"phase": "done", "window": None, "approved": 0})
         return {"found": False, "window": None, "approved_ids": [], "errors": all_errors, "scanned_windows": scanned}
 
     elif source == "existing_pairs":
-        # tenta somente pares já existentes, sem criar novos
         qs = Pair.objects.all().order_by("id")
         ids_aprovados: List[int] = []
         for w in windows_desc:
@@ -332,7 +358,6 @@ def hunt_pairs_until_found(
                         pair.save(update_fields=["scan_cache_json", "scan_cached_at"])
                         ids_aprovados.append(pair.id)
                     else:
-                        # marca reprovação informativa (não remove o par)
                         sc["base"] = {"window": w, "status": "reprovado", "message": msg}
                         pair.scan_cache_json = sc
                         pair.scan_cached_at = timezone.now()
@@ -340,13 +365,19 @@ def hunt_pairs_until_found(
                 except Exception as e:
                     all_errors.append(f"Pair {pair.id}: {e}")
             if ids_aprovados:
+                if progress_cb:
+                    progress_cb({"phase": "done", "window": w, "approved": len(ids_aprovados)})
                 return {
-                    "found": True, "window": w,
+                    "found": True,
+                    "window": w,
                     "approved_ids": list(ids_aprovados),
                     "errors": all_errors,
-                    "scanned_windows": scanned
+                    "scanned_windows": scanned,
                 }
+
+        if progress_cb:
+            progress_cb({"phase": "done", "window": None, "approved": 0})
         return {"found": False, "window": None, "approved_ids": [], "errors": all_errors, "scanned_windows": scanned}
 
     else:
-        return {"found": False, "window": None, "approved_ids": [], "errors": [f"source inválido: {source}"], "scanned_windows": scanned}
+        return {"found": False, "window": None, "approved_ids": [], "errors": [f"source inválido: {source}"], "scanned_windows": []}

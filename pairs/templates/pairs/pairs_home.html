@@ -10,20 +10,31 @@
 {% block content %}
 <div class="py-3">
 
-  <div class="d-flex align-items-center justify-content-between mb-3">
+  <!-- Título + ações (Caçar / Recalcular) -->
+  <div class="d-flex align-items-center justify-content-between mb-2">
     <h1 class="h4 mb-0">Pares</h1>
 
-    <div class="d-flex gap-2">
-      <!-- Caçar: diminui janelas até achar pelo menos 1 par -->
-      <form method="post" action="{% url 'pairs:refresh' %}?hunt=1" class="d-inline">
+    <div class="d-flex gap-2 align-items-center">
+      <!-- Caçar -->
+      <form
+        hx-post="{% url 'pairs:hunt_start' %}"
+        hx-target="#huntStatus"
+        hx-swap="outerHTML"
+        hx-indicator="#huntSpinner"
+        class="d-inline">
         {% csrf_token %}
-        <button class="btn btn-outline-warning btn-sm" title="Diminuir janelas até achar pelo menos 1 par">
+        <button class="btn btn-outline-warning btn-sm">
           <i class="bi bi-fast-forward"></i> Caçar ({{ BASE_WINDOW }}→…)
         </button>
       </form>
+      <div id="huntSpinner" class="htmx-indicator spinner-border spinner-border-sm" role="status" aria-hidden="true"></div>
 
-      <!-- Recalcular base -->
-      <form method="post" action="{% url 'pairs:refresh' %}" class="d-inline">
+      <!-- Recalcular base (AGORA COM STATUS) -->
+      <form
+        hx-post="{% url 'pairs:refresh_start' %}"
+        hx-target="#refreshStatus"
+        hx-swap="outerHTML"
+        class="d-inline">
         {% csrf_token %}
         <button class="btn btn-outline-primary btn-sm">
           <i class="bi bi-arrow-repeat"></i> Recalcular (base {{ BASE_WINDOW }}d)
@@ -31,6 +42,10 @@
       </form>
     </div>
   </div>
+  <!-- status da caça -->
+  <div id="huntStatus" class="mb-2"></div>
+  <!-- status do recálculo -->
+  <div id="refreshStatus" class="mb-3"></div>
 
   <div class="row g-3">
     <!-- Grid A -->
@@ -40,7 +55,6 @@
           <span class="fw-semibold">Grid A — Pares (janela-base {{ BASE_WINDOW }}d)</span>
           <span class="text-body-secondary small">Soft UI + Dark Mode</span>
         </div>
-
         <div class="card-body p-0">
           {% include "pairs/_pairs_table.html" with pairs=pairs %}
         </div>
@@ -57,13 +71,14 @@
         <div class="card-body p-0" id="scanPane">
           <div class="p-3 text-body-secondary">
             Selecione um par no Grid A (<i class="bi bi-search"></i> Scan) para ver o scanner
+            [{{ SCAN_MIN }}…{{ SCAN_MAX }}].
           </div>
         </div>
       </div>
     </div>
   </div>
 
-  <!-- ===== Z-score (aparece aqui após clicar no botão do Grid B) ===== -->
+  <!-- Z-score -->
   <div class="card shadow-sm rounded-4 soft-card mt-3">
     <div class="card-header d-flex align-items-center justify-content-between card-header-compact">
       <span class="fw-semibold">Z-score</span>
