@@ -25,8 +25,8 @@ HALF_LIFE_MAX = 30
 CORR_MIN = 0.5
 
 # Janelas padrão
-DEFAULT_WINDOWS = [160, 170, 180, 190, 200, 210, 220]
-BASE_WINDOW = 220
+DEFAULT_WINDOWS = [80, 90, 100, 110, 120, 130, 140, 150, 160, 170, 180]
+BASE_WINDOW =180
 
 
 @dataclass
@@ -276,7 +276,7 @@ def hunt_pairs_until_found(
     limit_assets: int | None = None
 ) -> Dict[str, Any]:
     """
-    Diminui a janela (ex.: [220,210,200,...,120]) e, para cada janela, tenta aprovar pares.
+    Diminui a janela (ex.: [180,170,160,...,80]) e, para cada janela, tenta aprovar pares.
     - source="assets": usa build_pairs_base(window=...), varrendo combinações de Asset.
     - source="existing_pairs": apenas tenta os Pair já existentes (sem criar novos).
     Para ao encontrar pelo menos 1 aprovado. Retorna o resumo da janela vencedora.
@@ -291,7 +291,8 @@ def hunt_pairs_until_found(
       }
     """
     if windows_desc is None:
-        windows_desc = [220, 210, 200, 190, 180, 170, 160, 150, 140, 130, 120]
+        # Mantém o mesmo número de períodos (11), começando em 180 e descendo de 10 em 10 até 80
+        windows_desc = [180, 170, 160, 150, 140, 130, 120, 110, 100, 90, 80]
 
     scanned = []
     all_errors: List[str] = []

@@ -25,12 +25,13 @@ def refresh_pairs_base(request: HttpRequest) -> HttpResponse:
 @require_GET
 def pairs_home(request: HttpRequest) -> HttpResponse:
     qs = Pair.objects.all().order_by("id")
-    # mostra só quem tem cache 'base' ok (ajuste se quiser ver todos)
     pairs = [p for p in qs if (p.scan_cache_json or {}).get("base", {}).get("status") == "ok"]
     context = {
         "pairs": pairs,
         "BASE_WINDOW": BASE_WINDOW,
         "DEFAULT_WINDOWS": DEFAULT_WINDOWS,
+        "SCAN_MIN": min(DEFAULT_WINDOWS) if DEFAULT_WINDOWS else None,
+        "SCAN_MAX": max(DEFAULT_WINDOWS) if DEFAULT_WINDOWS else None,
         "current": "pares",
     }
     return render(request, "pairs/pairs_home.html", context)
