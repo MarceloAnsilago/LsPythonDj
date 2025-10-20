@@ -50,7 +50,9 @@ INSTALLED_APPS = [
     'pairs',
 
     # Autenticação
-    'accounts',  # 👈 adicionado aqui
+    'accounts', 
+
+
 ]
 
 

@@ -15,4 +15,6 @@ urlpatterns = [
 
     # 🔽 CORE POR ÚLTIMO (catch-all da home e demais páginas gerais)
     path("", include("core.urls")),
+
+
 ]

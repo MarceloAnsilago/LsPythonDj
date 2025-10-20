@@ -13,4 +13,8 @@ urlpatterns = [
     path("hunt/status/<str:job_id>/", views.hunt_status, name="hunt_status"),
     path("refresh/start/", views.refresh_start, name="refresh_start"),
     path("refresh/status/<str:job_id>/", views.refresh_status, name="refresh_status"),
+
+    path("analise/", views.analysis_entry, name="analysis"),
+    path("analise/metrics/", views.analysis_metrics, name="analysis_metrics"),  # HTMX
+    path("analise/zseries/", views.analysis_zseries, name="analysis_zseries"),  # HTMX
 ]

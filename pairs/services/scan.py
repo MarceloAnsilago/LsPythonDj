@@ -2,9 +2,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import List, Dict, Any, Optional, Callable
-import math
 from itertools import combinations
 
+from django.conf import settings
 from django.utils import timezone
 
 from pairs.models import Pair
@@ -19,11 +19,36 @@ try:
 except Exception:
     compute_pair_window_metrics = None  # será tratado com "erro"
 
-# Thresholds (defaults)
-ADF_MIN = 95.0                 # p <= 0.05
-HALF_LIFE_MIN = 3
-HALF_LIFE_MAX = 30
-CORR_MIN = 0.5
+@dataclass(frozen=True)
+class Thresholds:
+    """Ajustável futuramente pela tela de configurações."""
+    adf_min: float = 95.0  # p <= 0.05
+    zscore_abs_min: float = 2.0  # |z| >= 2 é considerado sinal válido
+
+
+def get_thresholds() -> Thresholds:
+    """
+    Retorna thresholds configuráveis. Hoje lê de settings.PAIRS_THRESHOLDS (dict opcional),
+    mas fica pronto para, no futuro, receber valores vindos da tela de configurações.
+    """
+    cfg = getattr(settings, "PAIRS_THRESHOLDS", None)
+    if isinstance(cfg, dict):
+        data: Dict[str, Any] = {}
+        if "adf_min" in cfg:
+            try:
+                data["adf_min"] = float(cfg["adf_min"])
+            except (TypeError, ValueError):
+                pass
+        if "zscore_abs_min" in cfg:
+            try:
+                data["zscore_abs_min"] = float(cfg["zscore_abs_min"])
+            except (TypeError, ValueError):
+                pass
+        try:
+            return Thresholds(**data)
+        except TypeError:
+            pass
+    return Thresholds()
 
 # Janelas padrão
 # Grid B (Scanner): 11 janelas de 80 a 180 (passo 10)
@@ -54,20 +79,24 @@ def _tie_break(best: WindowRow | None, candidate: WindowRow | None) -> WindowRow
         return best
     if best is None:
         return candidate
-    # maior ADF% → menor half-life → menor |beta|
-    if (candidate.adf_pct or -1) != (best.adf_pct or -1):
-        return candidate if (candidate.adf_pct or -1) > (best.adf_pct or -1) else best
-    if (candidate.half_life or math.inf) != (best.half_life or math.inf):
-        return candidate if (candidate.half_life or math.inf) < (best.half_life or math.inf) else best
+    # maior ADF% -> maior |Z| -> menor |beta|
+    cand_adf = candidate.adf_pct or -1
+    best_adf = best.adf_pct or -1
+    if cand_adf != best_adf:
+        return candidate if cand_adf > best_adf else best
+    cand_z = abs(candidate.zscore or 0)
+    best_z = abs(best.zscore or 0)
+    if cand_z != best_z:
+        return candidate if cand_z > best_z else best
     cb = abs(candidate.beta or 0)
     bb = abs(best.beta or 0)
     return candidate if cb < bb else best
-
 
 def scan_pair_windows(pair: Pair, windows: List[int] = DEFAULT_WINDOWS) -> Dict[str, Any]:
     """Scanner por janelas para um Pair específico (Grid B)."""
     rows: List[WindowRow] = []
     best: Optional[WindowRow] = None
+    thresholds = get_thresholds()
 
     for w in windows:
         status = "pendente"
@@ -91,12 +120,12 @@ def scan_pair_windows(pair: Pair, windows: List[int] = DEFAULT_WINDOWS) -> Dict[
                 status, message = "reprovado", "Amostra insuficiente (N<60)"
             elif adf_pct is None:
                 status, message = "reprovado", "ADF% indisponível"
-            elif adf_pct < ADF_MIN:
-                status, message = "reprovado", "Sem evidência (ADF < 95%)"
-            elif half_life is None or not (HALF_LIFE_MIN <= half_life <= HALF_LIFE_MAX):
-                status, message = "reprovado", "Meia-vida fora da faixa"
-            elif (corr30 is None) or (corr60 is None) or min(corr30, corr60) < CORR_MIN:
-                status, message = "reprovado", "Correlação baixa (min corr30/60 < 0.5)"
+            elif adf_pct < thresholds.adf_min:
+                status, message = "reprovado", f"ADF {adf_pct:.1f}% < mínimo {thresholds.adf_min:.1f}%"
+            elif zscore is None:
+                status, message = "reprovado", "Z-score indisponível"
+            elif abs(zscore) < thresholds.zscore_abs_min:
+                status, message = "reprovado", f"|Z| < {thresholds.zscore_abs_min:.1f}"
             else:
                 status, message = "ok", "OK"
         except Exception as e:
@@ -152,6 +181,8 @@ def _compute_base_for_pair(pair: Pair, window: int = BASE_WINDOW) -> tuple[bool,
     if compute_pair_window_metrics is None:
         return False, {}, "Função compute_pair_window_metrics não encontrada."
 
+    thresholds = get_thresholds()
+
     try:
         m = compute_pair_window_metrics(pair=pair, window=window)
         adf_pvalue = m.get("adf_pvalue")
@@ -167,12 +198,12 @@ def _compute_base_for_pair(pair: Pair, window: int = BASE_WINDOW) -> tuple[bool,
             return False, {}, "Amostra insuficiente (N<60)"
         if adf_pct is None:
             return False, {}, "ADF% indisponível"
-        if adf_pct < ADF_MIN:
-            return False, {}, "Sem evidência (ADF < 95%)"
-        if half_life is None or not (HALF_LIFE_MIN <= half_life <= HALF_LIFE_MAX):
-            return False, {}, "Meia-vida fora da faixa"
-        if (corr30 is None) or (corr60 is None) or min(corr30, corr60) < CORR_MIN:
-            return False, {}, "Correlação baixa (min corr30/60 < 0.5)"
+        if adf_pct < thresholds.adf_min:
+            return False, {}, f"ADF {adf_pct:.1f}% < mínimo {thresholds.adf_min:.1f}%"
+        if zscore is None:
+            return False, {}, "Z-score indisponível"
+        if abs(zscore) < thresholds.zscore_abs_min:
+            return False, {}, f"|Z| < {thresholds.zscore_abs_min:.1f}"
 
         base = {
             "window": window,

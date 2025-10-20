@@ -1,0 +1,219 @@
+{% load static %}
+
+<div class="row g-3">
+  <div class="col-12 col-lg-4">
+    {% include "pairs/_analysis_metrics.html" %}
+  </div>
+  <div class="col-12 col-lg-8 d-flex flex-column gap-3">
+    <div class="card shadow-sm rounded-4 soft-card">
+      <div class="card-body">
+        <div class="d-flex justify-content-between align-items-baseline mb-3">
+          <div>
+            <span class="fw-semibold">Z-score</span>
+            <span class="text-body-secondary small ms-2">{{ pair_label }}</span>
+          </div>
+          <span class="text-body-secondary small">Atualizado {{ generated_at|date:"d/m/Y H:i" }}</span>
+        </div>
+        {% if data_points %}
+          <div class="position-relative" style="height:320px">
+            <canvas id="analysis-chart-{{ chart_id }}"></canvas>
+          </div>
+        {% else %}
+          <div class="text-body-secondary small">
+            Nao ha dados suficientes para plotar o grafico nesta janela.
+          </div>
+        {% endif %}
+      </div>
+    </div>
+
+    <div class="card shadow-sm rounded-4 soft-card">
+      <div class="card-body">
+        <div class="d-flex justify-content-between align-items-baseline mb-3">
+          <div>
+            <span class="fw-semibold">Pares normalizados</span>
+            <span class="text-body-secondary small ms-2">{{ left_label }} vs {{ right_label }}</span>
+          </div>
+          <span class="text-body-secondary small">Atualizado {{ generated_at|date:"d/m/Y H:i" }}</span>
+        </div>
+        {% if normalized_points %}
+          <div class="position-relative" style="height:320px">
+            <canvas id="analysis-normalized-{{ chart_id }}"></canvas>
+          </div>
+        {% else %}
+          <div class="text-body-secondary small">
+            Nao ha dados suficientes para plotar o grafico normalizado nesta janela.
+          </div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+
+{% if data_points or normalized_points %}
+<script>
+(function () {
+  const labels = {{ labels_json|safe }};
+  const values = {{ values_json|safe }};
+  const normalizedLabels = {{ normalized_labels_json|safe }};
+  const normalizedLeft = {{ normalized_left_json|safe }};
+  const normalizedRight = {{ normalized_right_json|safe }};
+
+  const canvasId = "analysis-chart-{{ chart_id }}";
+  const normalizedCanvasId = "analysis-normalized-{{ chart_id }}";
+  const leftLabel = "{{ left_label|escapejs }}";
+  const rightLabel = "{{ right_label|escapejs }}";
+
+  const hasZScore = Array.isArray(labels) && labels.length > 0;
+  const hasNormalized = Array.isArray(normalizedLabels) && normalizedLabels.length > 0;
+  if (!hasZScore && !hasNormalized) return;
+
+  function ensureChartJs(callback) {
+    if (window.Chart) {
+      callback();
+      return;
+    }
+    let script = document.getElementById('chartjs-lib');
+    if (!script) {
+      script = document.createElement('script');
+      script.id = 'chartjs-lib';
+      script.src = 'https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js';
+      script.async = true;
+      script.onload = callback;
+      document.head.appendChild(script);
+    } else {
+      script.addEventListener('load', callback, { once: true });
+    }
+  }
+
+  function lineDataset(y, dashed, label) {
+    const arr = new Array(labels.length).fill(y);
+    const ds = {
+      label: label,
+      data: arr,
+      borderWidth: 1,
+      pointRadius: 0,
+      tension: 0,
+      fill: false
+    };
+    if (dashed) ds.borderDash = [6, 6];
+    return ds;
+  }
+
+  function destroyExisting(id) {
+    window.__analysisCharts = window.__analysisCharts || {};
+    const existing = window.__analysisCharts[id];
+    if (existing) {
+      existing.destroy();
+    }
+  }
+
+  function buildZScoreChart() {
+    if (!hasZScore) return;
+    const canvas = document.getElementById(canvasId);
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+
+    window.__analysisCharts = window.__analysisCharts || {};
+    destroyExisting(canvasId);
+
+    window.__analysisCharts[canvasId] = new Chart(ctx, {
+      type: 'line',
+      data: {
+        labels: labels,
+        datasets: [
+          {
+            label: 'Z-score',
+            data: values,
+            borderWidth: 2,
+            borderColor: '#0d6efd',
+            backgroundColor: 'rgba(13, 110, 253, 0.08)',
+            pointRadius: 0,
+            tension: 0.2,
+            fill: false
+          },
+          lineDataset(2.0, false, '+2'),
+          lineDataset(-2.0, false, '-2'),
+          lineDataset(2.5, true, '+2.5'),
+          lineDataset(-2.5, true, '-2.5'),
+          lineDataset(3.0, true, '+3'),
+          lineDataset(-3.0, true, '-3'),
+          lineDataset(0.0, false, '0')
+        ]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        interaction: { mode: 'index', intersect: false },
+        plugins: { legend: { display: false } },
+        scales: {
+          x: { display: true, ticks: { maxTicksLimit: 8 } },
+          y: {
+            display: true,
+            title: { display: true, text: 'Z' }
+          }
+        }
+      }
+    });
+  }
+
+  function buildNormalizedChart() {
+    if (!hasNormalized) return;
+    const canvas = document.getElementById(normalizedCanvasId);
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+
+    window.__analysisCharts = window.__analysisCharts || {};
+    destroyExisting(normalizedCanvasId);
+
+    window.__analysisCharts[normalizedCanvasId] = new Chart(ctx, {
+      type: 'line',
+      data: {
+        labels: normalizedLabels,
+        datasets: [
+          {
+            label: leftLabel,
+            data: normalizedLeft,
+            borderWidth: 2,
+            borderColor: '#198754',
+            backgroundColor: 'rgba(25, 135, 84, 0.08)',
+            pointRadius: 0,
+            tension: 0.15,
+            fill: false
+          },
+          {
+            label: rightLabel,
+            data: normalizedRight,
+            borderWidth: 2,
+            borderColor: '#dc3545',
+            backgroundColor: 'rgba(220, 53, 69, 0.08)',
+            pointRadius: 0,
+            tension: 0.15,
+            fill: false
+          }
+        ]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        interaction: { mode: 'index', intersect: false },
+        plugins: { legend: { display: true } },
+        scales: {
+          x: { display: true, ticks: { maxTicksLimit: 8 } },
+          y: {
+            display: true,
+            title: { display: true, text: 'Índice (base 100)' }
+          }
+        }
+      }
+    });
+  }
+
+  function buildCharts() {
+    buildZScoreChart();
+    buildNormalizedChart();
+  }
+
+  ensureChartJs(buildCharts);
+})();
+</script>
+{% endif %}

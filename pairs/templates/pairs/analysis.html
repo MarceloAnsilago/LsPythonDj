@@ -1,0 +1,52 @@
+{% extends "_base.html" %}
+
+{% block extra_head %}
+  <script src="https://unpkg.com/htmx.org@1.9.12"></script>
+{% endblock %}
+
+{% block content %}
+<div class="py-3">
+  <div class="card shadow-sm rounded-4 soft-card mb-3">
+    <div class="card-body">
+      <div class="d-flex align-items-center justify-content-between flex-wrap gap-3">
+        <div>
+          <h1 class="h5 mb-1 fw-semibold">Analise - {{ pair.left.ticker }} x {{ pair.right.ticker }}</h1>
+          <div class="text-body-secondary small">
+            Janela atual: {{ window }}d{% if source %} (origem: {{ source }}){% endif %}
+          </div>
+        </div>
+        <div class="d-flex align-items-center gap-2 flex-wrap">
+          <label for="selWindow" class="form-label mb-0 small text-body-secondary">Janela</label>
+          <select id="selWindow"
+                  name="window"
+                  class="form-select form-select-sm"
+                  hx-get="{% url 'pairs:analysis_zseries' %}?{{ request.GET.urlencode }}"
+                  hx-target="#analysisPanel"
+                  hx-include="#selWindow"
+                  hx-trigger="change"
+                  hx-swap="innerHTML">
+            {% for w in windows %}
+              <option value="{{ w }}" {% if w == window %}selected{% endif %}>{{ w }}d</option>
+            {% endfor %}
+          </select>
+          <button class="btn btn-primary btn-sm"
+                  hx-get="{% url 'pairs:analysis_zseries' %}?{{ request.GET.urlencode }}"
+                  hx-include="#selWindow"
+                  hx-target="#analysisPanel"
+                  hx-swap="innerHTML">
+            Atualizar grafico
+          </button>
+          <button class="btn btn-outline-secondary btn-sm" disabled title="Em breve">Iniciar operacao</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="analysisPanel"
+       hx-get="{% url 'pairs:analysis_zseries' %}?{{ request.GET.urlencode }}"
+       hx-include="#selWindow"
+       hx-trigger="load"
+       hx-swap="innerHTML">
+  </div>
+</div>
+{% endblock %}

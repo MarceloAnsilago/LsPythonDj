@@ -1,0 +1,44 @@
+{% extends "_base.html" %}
+
+{% block content %}
+<div class="py-3">
+  <div class="card shadow-sm rounded-4 soft-card">
+    <div class="card-body">
+      <h1 class="h5 fw-semibold mb-3">Analise - escolher par</h1>
+      <form method="get"
+            action="{% url 'pairs:analysis' %}"
+            class="row g-3 g-sm-2 align-items-end">
+        <div class="col-12 col-sm-auto">
+          <label class="form-label small text-body-secondary" for="leftTicker">Esquerda</label>
+          <input id="leftTicker"
+                 name="left"
+                 class="form-control"
+                 placeholder="ex: PETR4"
+                 autocomplete="off"
+                 required>
+        </div>
+        <div class="col-12 col-sm-auto">
+          <label class="form-label small text-body-secondary" for="rightTicker">Direita</label>
+          <input id="rightTicker"
+                 name="right"
+                 class="form-control"
+                 placeholder="ex: VALE3"
+                 autocomplete="off"
+                 required>
+        </div>
+        <div class="col-12 col-sm-auto">
+          <label class="form-label small text-body-secondary" for="windowSize">Janela</label>
+          <select id="windowSize" name="window" class="form-select">
+            {% for w in windows %}
+              <option value="{{ w }}">{{ w }}d</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="col-12 col-sm-auto d-grid">
+          <button class="btn btn-primary">Analisar</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+{% endblock %}

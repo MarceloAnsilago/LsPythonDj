@@ -36,11 +36,9 @@
 
 <!-- Botão placeholder -->
 <div class="d-flex justify-content-end mt-2">
-  <a class="btn btn-warning btn-sm disabled"
-     href="#"
-     role="button"
-     aria-disabled="true"
-     title="Página de operação será implementada em breve">
+  <a class="btn btn-warning btn-sm"
+     href="{% url 'pairs:analysis' %}?pair={{ pair.id }}{% if window %}&window={{ window }}{% endif %}"
+     title="Abrir an&aacute;lise completa para este par">
     <i class="bi bi-lightning-charge"></i> Operar
   </a>
 </div>

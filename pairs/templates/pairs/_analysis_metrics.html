@@ -1,0 +1,20 @@
+<div class="card shadow-sm rounded-4 soft-card h-100">
+  <div class="card-body">
+    <div class="d-flex justify-content-between align-items-baseline mb-3">
+      <span class="fw-semibold">Metricas ({{ window }}d)</span>
+      {% if pair_label %}<span class="text-body-secondary small">{{ pair_label }}</span>{% endif %}
+    </div>
+    {% if metrics_display %}
+      <div class="d-flex flex-column gap-2">
+        {% for item in metrics_display %}
+          <div class="d-flex justify-content-between align-items-baseline rounded-3 px-3 py-2 bg-body-tertiary">
+            <span class="text-body-secondary small">{{ item.label }}</span>
+            <span class="fw-semibold">{{ item.value }}</span>
+          </div>
+        {% endfor %}
+      </div>
+    {% else %}
+      <div class="text-body-secondary small">Sem metricas disponiveis para esta combinacao.</div>
+    {% endif %}
+  </div>
+</div>

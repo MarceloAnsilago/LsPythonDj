@@ -169,3 +169,54 @@ def get_zscore_series(pair, window: int) -> list[tuple[pd.Timestamp, float]]:
     series = [(d.to_pydatetime() if hasattr(d, "to_pydatetime") else d, float(z))
               for d, z in zip(dates, spread_z)]
     return series
+
+
+def get_normalized_price_series(pair, window: int) -> list[tuple[pd.Timestamp, float, float]]:
+    """
+    Retorna uma série (date, norm_left, norm_right) com os preços normalizados
+    (base 100) para o par na janela informada.
+    """
+    left = pair.left
+    right = pair.right
+
+    ql = (QuoteDaily.objects
+          .filter(asset=left)
+          .values("date", "close")
+          .order_by("-date")[:window * 2])
+    qr = (QuoteDaily.objects
+          .filter(asset=right)
+          .values("date", "close")
+          .order_by("-date")[:window * 2])
+
+    df_l = pd.DataFrame(list(ql)).rename(columns={"close": "close_l"})
+    df_r = pd.DataFrame(list(qr)).rename(columns={"close": "close_r"})
+    if df_l.empty or df_r.empty:
+        return []
+
+    df = (
+        pd.merge(df_l, df_r, on="date", how="inner")
+          .sort_values("date")
+          .tail(window)
+          .reset_index(drop=True)
+    )
+    if df.empty or len(df) < 2:
+        return []
+
+    base_l = float(df["close_l"].iloc[0])
+    base_r = float(df["close_r"].iloc[0])
+    if base_l == 0 or base_r == 0:
+        return []
+
+    df["norm_left"] = (df["close_l"].astype(float) / base_l) * 100.0
+    df["norm_right"] = (df["close_r"].astype(float) / base_r) * 100.0
+
+    dates = pd.to_datetime(df["date"])
+    series = [
+        (
+            d.to_pydatetime() if hasattr(d, "to_pydatetime") else d,
+            float(nl),
+            float(nr),
+        )
+        for d, nl, nr in zip(dates, df["norm_left"], df["norm_right"])
+    ]
+    return series
