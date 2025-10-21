@@ -220,3 +220,62 @@ def get_normalized_price_series(pair, window: int) -> list[tuple[pd.Timestamp, f
         for d, nl, nr in zip(dates, df["norm_left"], df["norm_right"])
     ]
     return series
+
+
+def get_moving_beta_series(pair, window: int, beta_window: int = 5) -> list[tuple[pd.Timestamp, float]]:
+    """
+    Calcula o beta via OLS em blocos de 'beta_window' períodos ao longo da janela.
+    Retorna lista de tuplas (data_final_do_bloco, beta).
+    """
+    if beta_window <= 1:
+        return []
+
+    left = pair.left
+    right = pair.right
+
+    ql = (QuoteDaily.objects
+          .filter(asset=left)
+          .values("date", "close")
+          .order_by("-date")[:window * 2])
+    qr = (QuoteDaily.objects
+          .filter(asset=right)
+          .values("date", "close")
+          .order_by("-date")[:window * 2])
+
+    df_l = pd.DataFrame(list(ql)).rename(columns={"close": "close_l"})
+    df_r = pd.DataFrame(list(qr)).rename(columns={"close": "close_r"})
+    if df_l.empty or df_r.empty:
+        return []
+
+    df = (
+        pd.merge(df_l, df_r, on="date", how="inner")
+          .sort_values("date")
+          .tail(window)
+          .reset_index(drop=True)
+    )
+    n = len(df)
+    if n < beta_window:
+        return []
+
+    px_l = np.log(df["close_l"].astype(float))
+    px_r = np.log(df["close_r"].astype(float))
+    dates = pd.to_datetime(df["date"])
+
+    series: list[tuple[pd.Timestamp, float]] = []
+    for end_idx in range(beta_window, n + 1, beta_window):
+        start_idx = end_idx - beta_window
+        sub_l = px_l.iloc[start_idx:end_idx]
+        sub_r = px_r.iloc[start_idx:end_idx]
+        X = np.vstack([np.ones(beta_window), sub_r.values]).T
+        y = sub_l.values
+        try:
+            beta_hat = np.linalg.lstsq(X, y, rcond=None)[0][1]
+        except Exception:
+            continue
+        dt = dates.iloc[end_idx - 1]
+        series.append((
+            dt.to_pydatetime() if hasattr(dt, "to_pydatetime") else dt,
+            float(beta_hat),
+        ))
+
+    return series

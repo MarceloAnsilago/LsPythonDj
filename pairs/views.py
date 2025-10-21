@@ -23,6 +23,7 @@ from longshort.services.metrics import (
     compute_pair_window_metrics,
     get_normalized_price_series,
     get_zscore_series,
+    get_moving_beta_series,
 )
 from .models import Pair
 from .services.scan import (
@@ -35,6 +36,7 @@ from .services.scan import (
 
 from acoes.models import Asset
 # from operacoes.models import Operacao  # (deixe import comentado até existir)
+BETA_MOVING_WINDOW = 2
 
 
 # -------- Base / Grid A --------
@@ -313,6 +315,7 @@ def analysis_zseries(request):
     metrics_display = _build_metrics_display(metrics)
     series = get_zscore_series(pair, window)
     normalized_series = get_normalized_price_series(pair=pair, window=window)
+    moving_beta_series = get_moving_beta_series(pair=pair, window=window, beta_window=BETA_MOVING_WINDOW)
 
     labels: list[str] = []
     values: list[float] = []
@@ -343,6 +346,18 @@ def analysis_zseries(request):
         except (TypeError, ValueError):
             normalized_right.append(0.0)
 
+    beta_labels: list[str] = []
+    beta_values: list[float] = []
+    for dt_value, beta_val in moving_beta_series:
+        if hasattr(dt_value, "strftime"):
+            beta_labels.append(dt_value.strftime("%Y-%m-%d"))
+        else:
+            beta_labels.append(str(dt_value))
+        try:
+            beta_values.append(float(beta_val))
+        except (TypeError, ValueError):
+            beta_values.append(0.0)
+
     dispersion_points: list[dict[str, float]] = []
     for left_val, right_val in zip(normalized_left, normalized_right):
         try:
@@ -371,11 +386,15 @@ def analysis_zseries(request):
         "normalized_labels_json": json.dumps(normalized_labels),
         "normalized_left_json": json.dumps(normalized_left),
         "normalized_right_json": json.dumps(normalized_right),
+        "beta_labels_json": json.dumps(beta_labels),
+        "beta_values_json": json.dumps(beta_values),
         "dispersion_points_json": json.dumps(dispersion_points),
         "chart_id": chart_id,
         "data_points": len(values),
         "normalized_points": len(normalized_labels),
+        "beta_points": len(beta_labels),
         "dispersion_points": len(dispersion_points),
+        "beta_window": BETA_MOVING_WINDOW,
         "generated_at": now(),
     }
     return render(request, "pairs/_analysis_panel.html", context)

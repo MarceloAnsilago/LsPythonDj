@@ -30,6 +30,27 @@
         <div class="card-body">
           <div class="d-flex justify-content-between align-items-baseline mb-3">
             <div>
+              <span class="fw-semibold">Beta movel</span>
+              <span class="text-body-secondary small ms-2">{{ pair_label }}</span>
+            </div>
+            <span class="text-body-secondary small">Janela {{ beta_window }}p</span>
+          </div>
+          {% if beta_points %}
+            <div class="position-relative" style="height:320px">
+              <canvas id="analysis-beta-{{ chart_id }}"></canvas>
+            </div>
+          {% else %}
+            <div class="text-body-secondary small">
+              Nao ha dados suficientes para plotar o beta movel nesta janela.
+            </div>
+          {% endif %}
+        </div>
+      </div>
+
+      <div class="card shadow-sm rounded-4 soft-card">
+        <div class="card-body">
+          <div class="d-flex justify-content-between align-items-baseline mb-3">
+            <div>
               <span class="fw-semibold">Pares normalizados</span>
               <span class="text-body-secondary small ms-2">{{ left_label }} vs {{ right_label }}</span>
             </div>
@@ -71,7 +92,7 @@
   </div>
 </div>
 
-{% if data_points or normalized_points or dispersion_points %}
+{% if data_points or normalized_points or beta_points or dispersion_points %}
 <script>
 (function () {
   const labels = {{ labels_json|safe }};
@@ -79,18 +100,23 @@
   const normalizedLabels = {{ normalized_labels_json|safe }};
   const normalizedLeft = {{ normalized_left_json|safe }};
   const normalizedRight = {{ normalized_right_json|safe }};
+  const betaLabels = {{ beta_labels_json|safe }};
+  const betaValues = {{ beta_values_json|safe }};
   const dispersionPoints = {{ dispersion_points_json|safe }};
 
   const canvasId = "analysis-chart-{{ chart_id }}";
   const normalizedCanvasId = "analysis-normalized-{{ chart_id }}";
+  const betaCanvasId = "analysis-beta-{{ chart_id }}";
   const dispersionCanvasId = "analysis-dispersion-{{ chart_id }}";
   const leftLabel = "{{ left_label|escapejs }}";
   const rightLabel = "{{ right_label|escapejs }}";
+  const betaWindow = {{ beta_window }};
 
   const hasZScore = Array.isArray(labels) && labels.length > 0;
   const hasNormalized = Array.isArray(normalizedLabels) && normalizedLabels.length > 0;
+  const hasBeta = Array.isArray(betaLabels) && betaLabels.length > 0;
   const hasDispersion = Array.isArray(dispersionPoints) && dispersionPoints.length > 0;
-  if (!hasZScore && !hasNormalized && !hasDispersion) return;
+  if (!hasZScore && !hasNormalized && !hasBeta && !hasDispersion) return;
 
   function ensureChartJs(callback) {
     if (window.Chart) {
@@ -263,6 +289,76 @@
     });
   }
 
+  function buildBetaChart() {
+    if (!hasBeta) return;
+    const canvas = document.getElementById(betaCanvasId);
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+
+    window.__analysisCharts = window.__analysisCharts || {};
+    const palette = getPalette();
+    destroyExisting(betaCanvasId);
+
+    window.__analysisCharts[betaCanvasId] = new Chart(ctx, {
+      type: 'line',
+      data: {
+        labels: betaLabels,
+        datasets: [
+          {
+            label: `Beta (${betaWindow})`,
+            data: betaValues,
+            borderWidth: 2,
+            borderColor: palette.primary,
+            backgroundColor: palette.primaryFill,
+            pointBackgroundColor: palette.primary,
+            pointBorderColor: palette.primary,
+            pointRadius: 4,
+            pointHoverRadius: 5,
+            tension: 0,
+            fill: false
+          }
+        ]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        interaction: { mode: 'nearest', intersect: true },
+        plugins: {
+          legend: {
+            display: true,
+            labels: { color: palette.axis }
+          },
+          tooltip: {
+            backgroundColor: palette.tooltipBg,
+            borderColor: palette.tooltipBorder,
+            borderWidth: 1,
+            titleColor: palette.axis,
+            bodyColor: palette.axis,
+            callbacks: {
+              label: (context) => {
+                const value = context.parsed.y != null ? context.parsed.y.toFixed(3) : 'n/a';
+                return `Beta: ${value}`;
+              }
+            }
+          }
+        },
+        scales: {
+          x: {
+            display: true,
+            ticks: { maxTicksLimit: 8, color: palette.axis },
+            grid: { color: palette.grid }
+          },
+          y: {
+            display: true,
+            ticks: { color: palette.axis },
+            grid: { color: palette.grid },
+            title: { display: true, text: 'Beta', color: palette.axis }
+          }
+        }
+      }
+    });
+  }
+
   function buildNormalizedChart() {
     if (!hasNormalized) return;
     const canvas = document.getElementById(normalizedCanvasId);
@@ -412,6 +508,7 @@
       return;
     }
     buildZScoreChart();
+    buildBetaChart();
     buildNormalizedChart();
     buildDispersionChart();
   }
