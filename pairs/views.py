@@ -12,6 +12,7 @@ import re
 import threading
 import uuid
 import traceback
+import math
 from typing import Any
 CACHE_TTL = 60 * 30  # 30 min
 
@@ -342,6 +343,17 @@ def analysis_zseries(request):
         except (TypeError, ValueError):
             normalized_right.append(0.0)
 
+    dispersion_points: list[dict[str, float]] = []
+    for left_val, right_val in zip(normalized_left, normalized_right):
+        try:
+            x_val = float(left_val)
+            y_val = float(right_val)
+        except (TypeError, ValueError):
+            continue
+        if not (math.isfinite(x_val) and math.isfinite(y_val)):
+            continue
+        dispersion_points.append({"x": x_val, "y": y_val})
+
     pair_label = f"{pair.left.ticker} x {pair.right.ticker}"
     slug_source = str(pair.pk or f"{pair.left.ticker}-{pair.right.ticker}")
     chart_id = re.sub(r"[^a-zA-Z0-9_-]", "", f"{slug_source}-{window}") or "analysis-chart"
@@ -359,9 +371,11 @@ def analysis_zseries(request):
         "normalized_labels_json": json.dumps(normalized_labels),
         "normalized_left_json": json.dumps(normalized_left),
         "normalized_right_json": json.dumps(normalized_right),
+        "dispersion_points_json": json.dumps(dispersion_points),
         "chart_id": chart_id,
         "data_points": len(values),
         "normalized_points": len(normalized_labels),
+        "dispersion_points": len(dispersion_points),
         "generated_at": now(),
     }
     return render(request, "pairs/_analysis_panel.html", context)

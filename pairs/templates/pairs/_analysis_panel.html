@@ -46,10 +46,31 @@
         {% endif %}
       </div>
     </div>
+
+    <div class="card shadow-sm rounded-4 soft-card">
+      <div class="card-body">
+        <div class="d-flex justify-content-between align-items-baseline mb-3">
+          <div>
+            <span class="fw-semibold">Dispersao</span>
+            <span class="text-body-secondary small ms-2">{{ left_label }} vs {{ right_label }}</span>
+          </div>
+          <span class="text-body-secondary small">Atualizado {{ generated_at|date:"d/m/Y H:i" }}</span>
+        </div>
+        {% if dispersion_points %}
+          <div class="position-relative" style="height:320px">
+            <canvas id="analysis-dispersion-{{ chart_id }}"></canvas>
+          </div>
+        {% else %}
+          <div class="text-body-secondary small">
+            Nao ha dados suficientes para plotar o grafico de dispersao nesta janela.
+          </div>
+        {% endif %}
+      </div>
+    </div>
   </div>
 </div>
 
-{% if data_points or normalized_points %}
+{% if data_points or normalized_points or dispersion_points %}
 <script>
 (function () {
   const labels = {{ labels_json|safe }};
@@ -57,15 +78,18 @@
   const normalizedLabels = {{ normalized_labels_json|safe }};
   const normalizedLeft = {{ normalized_left_json|safe }};
   const normalizedRight = {{ normalized_right_json|safe }};
+  const dispersionPoints = {{ dispersion_points_json|safe }};
 
   const canvasId = "analysis-chart-{{ chart_id }}";
   const normalizedCanvasId = "analysis-normalized-{{ chart_id }}";
+  const dispersionCanvasId = "analysis-dispersion-{{ chart_id }}";
   const leftLabel = "{{ left_label|escapejs }}";
   const rightLabel = "{{ right_label|escapejs }}";
 
   const hasZScore = Array.isArray(labels) && labels.length > 0;
   const hasNormalized = Array.isArray(normalizedLabels) && normalizedLabels.length > 0;
-  if (!hasZScore && !hasNormalized) return;
+  const hasDispersion = Array.isArray(dispersionPoints) && dispersionPoints.length > 0;
+  if (!hasZScore && !hasNormalized && !hasDispersion) return;
 
   function ensureChartJs(callback) {
     if (window.Chart) {
@@ -85,18 +109,83 @@
     }
   }
 
-  function lineDataset(y, dashed, label) {
+  function lineDataset(y, dashed, label, color) {
     const arr = new Array(labels.length).fill(y);
     const ds = {
       label: label,
       data: arr,
       borderWidth: 1,
+      borderColor: color || 'rgba(108, 117, 125, 0.35)',
       pointRadius: 0,
       tension: 0,
       fill: false
     };
     if (dashed) ds.borderDash = [6, 6];
     return ds;
+  }
+
+  function toRgba(color, alpha, fallback) {
+    const value = (color || '').trim();
+    if (!value) return fallback || `rgba(0, 0, 0, ${alpha})`;
+
+    if (value.startsWith('#')) {
+      let hex = value.slice(1);
+      if (hex.length === 3) {
+        hex = hex.split('').map((ch) => ch + ch).join('');
+      } else if (hex.length >= 6) {
+        hex = hex.slice(0, 6);
+      }
+      if (hex.length === 6) {
+        const r = parseInt(hex.slice(0, 2), 16);
+        const g = parseInt(hex.slice(2, 4), 16);
+        const b = parseInt(hex.slice(4, 6), 16);
+        return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+      }
+    }
+
+    const rgbMatch = value.match(/^rgba?\s*\(\s*([0-9.]+)\s*,\s*([0-9.]+)\s*,\s*([0-9.]+)\s*/i);
+    if (rgbMatch) {
+      return `rgba(${rgbMatch[1]}, ${rgbMatch[2]}, ${rgbMatch[3]}, ${alpha})`;
+    }
+
+    return fallback || value;
+  }
+
+  function readCssVar(styles, name, fallback) {
+    const raw = styles.getPropertyValue(name);
+    if (!raw) return fallback;
+    const trimmed = raw.trim();
+    return trimmed || fallback;
+  }
+
+  function getPalette() {
+    const styles = getComputedStyle(document.documentElement);
+    const primary = readCssVar(styles, '--bs-primary', '#0d6efd');
+    const info = readCssVar(styles, '--bs-info', '#0dcaf0');
+    const pink = readCssVar(styles, '--bs-pink', '#d63384');
+    const bodyColor = readCssVar(styles, '--bs-body-color', '#212529');
+    const secondaryColor = readCssVar(styles, '--bs-secondary-color', bodyColor);
+    const borderColor = readCssVar(
+      styles,
+      '--bs-border-color-translucent',
+      readCssVar(styles, '--bs-border-color', 'rgba(108,117,125,0.25)')
+    );
+    const bodyBg = readCssVar(styles, '--bs-body-bg', '#ffffff');
+
+    return {
+      primary,
+      primaryFill: toRgba(primary, 0.12, 'rgba(13, 110, 253, 0.12)'),
+      info,
+      infoFill: toRgba(info, 0.15, 'rgba(13, 202, 240, 0.15)'),
+      pink,
+      pinkFill: toRgba(pink, 0.15, 'rgba(214, 51, 132, 0.15)'),
+      axis: secondaryColor || bodyColor,
+      grid: toRgba(borderColor, 0.25, 'rgba(108, 117, 125, 0.22)'),
+      guideline: toRgba(secondaryColor || bodyColor, 0.5, 'rgba(108, 117, 125, 0.4)'),
+      zeroLine: toRgba(bodyColor, 0.65, 'rgba(33, 37, 41, 0.65)'),
+      tooltipBg: toRgba(bodyBg, bodyBg.startsWith('#') ? 0.95 : 0.98, bodyBg),
+      tooltipBorder: toRgba(borderColor, 0.4, 'rgba(108, 117, 125, 0.3)')
+    };
   }
 
   function destroyExisting(id) {
@@ -114,6 +203,7 @@
     const ctx = canvas.getContext('2d');
 
     window.__analysisCharts = window.__analysisCharts || {};
+    const palette = getPalette();
     destroyExisting(canvasId);
 
     window.__analysisCharts[canvasId] = new Chart(ctx, {
@@ -125,31 +215,47 @@
             label: 'Z-score',
             data: values,
             borderWidth: 2,
-            borderColor: '#0d6efd',
-            backgroundColor: 'rgba(13, 110, 253, 0.08)',
+            borderColor: palette.primary,
+            backgroundColor: palette.primaryFill,
             pointRadius: 0,
             tension: 0.2,
             fill: false
           },
-          lineDataset(2.0, false, '+2'),
-          lineDataset(-2.0, false, '-2'),
-          lineDataset(2.5, true, '+2.5'),
-          lineDataset(-2.5, true, '-2.5'),
-          lineDataset(3.0, true, '+3'),
-          lineDataset(-3.0, true, '-3'),
-          lineDataset(0.0, false, '0')
+          lineDataset(2.0, false, '+2', palette.guideline),
+          lineDataset(-2.0, false, '-2', palette.guideline),
+          lineDataset(2.5, true, '+2.5', palette.guideline),
+          lineDataset(-2.5, true, '-2.5', palette.guideline),
+          lineDataset(3.0, true, '+3', palette.guideline),
+          lineDataset(-3.0, true, '-3', palette.guideline),
+          lineDataset(0.0, false, '0', palette.zeroLine)
         ]
       },
       options: {
         responsive: true,
         maintainAspectRatio: false,
         interaction: { mode: 'index', intersect: false },
-        plugins: { legend: { display: false } },
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            backgroundColor: palette.tooltipBg,
+            borderColor: palette.tooltipBorder,
+            borderWidth: 1,
+            titleColor: palette.axis,
+            bodyColor: palette.axis,
+            displayColors: false
+          }
+        },
         scales: {
-          x: { display: true, ticks: { maxTicksLimit: 8 } },
+          x: {
+            display: true,
+            ticks: { maxTicksLimit: 8, color: palette.axis },
+            grid: { color: palette.grid }
+          },
           y: {
             display: true,
-            title: { display: true, text: 'Z' }
+            ticks: { color: palette.axis },
+            grid: { color: palette.grid },
+            title: { display: true, text: 'Z', color: palette.axis }
           }
         }
       }
@@ -163,6 +269,7 @@
     const ctx = canvas.getContext('2d');
 
     window.__analysisCharts = window.__analysisCharts || {};
+    const palette = getPalette();
     destroyExisting(normalizedCanvasId);
 
     window.__analysisCharts[normalizedCanvasId] = new Chart(ctx, {
@@ -174,8 +281,8 @@
             label: leftLabel,
             data: normalizedLeft,
             borderWidth: 2,
-            borderColor: '#198754',
-            backgroundColor: 'rgba(25, 135, 84, 0.08)',
+            borderColor: palette.info,
+            backgroundColor: palette.infoFill,
             pointRadius: 0,
             tension: 0.15,
             fill: false
@@ -184,8 +291,8 @@
             label: rightLabel,
             data: normalizedRight,
             borderWidth: 2,
-            borderColor: '#dc3545',
-            backgroundColor: 'rgba(220, 53, 69, 0.08)',
+            borderColor: palette.pink,
+            backgroundColor: palette.pinkFill,
             pointRadius: 0,
             tension: 0.15,
             fill: false
@@ -196,12 +303,102 @@
         responsive: true,
         maintainAspectRatio: false,
         interaction: { mode: 'index', intersect: false },
-        plugins: { legend: { display: true } },
+        plugins: {
+          legend: {
+            display: true,
+            labels: {
+              color: palette.axis,
+              usePointStyle: true,
+              boxWidth: 10
+            }
+          },
+          tooltip: {
+            backgroundColor: palette.tooltipBg,
+            borderColor: palette.tooltipBorder,
+            borderWidth: 1,
+            titleColor: palette.axis,
+            bodyColor: palette.axis
+          }
+        },
         scales: {
-          x: { display: true, ticks: { maxTicksLimit: 8 } },
+          x: {
+            display: true,
+            ticks: { maxTicksLimit: 8, color: palette.axis },
+            grid: { color: palette.grid }
+          },
           y: {
             display: true,
-            title: { display: true, text: 'Índice (base 100)' }
+            ticks: { color: palette.axis },
+            grid: { color: palette.grid },
+            title: { display: true, text: 'Índice (base 100)', color: palette.axis }
+          }
+        }
+      }
+    });
+  }
+
+  function buildDispersionChart() {
+    if (!hasDispersion) return;
+    const canvas = document.getElementById(dispersionCanvasId);
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+
+    window.__analysisCharts = window.__analysisCharts || {};
+    const palette = getPalette();
+    destroyExisting(dispersionCanvasId);
+
+    window.__analysisCharts[dispersionCanvasId] = new Chart(ctx, {
+      type: 'scatter',
+      data: {
+        datasets: [
+          {
+            label: leftLabel + ' vs ' + rightLabel,
+            data: dispersionPoints,
+            pointRadius: 4,
+            pointHoverRadius: 5,
+            pointBackgroundColor: palette.primary,
+            pointBorderColor: palette.primary,
+            showLine: false
+          }
+        ]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        animation: false,
+        plugins: {
+          legend: {
+            display: false
+          },
+          tooltip: {
+            backgroundColor: palette.tooltipBg,
+            borderColor: palette.tooltipBorder,
+            borderWidth: 1,
+            titleColor: palette.axis,
+            bodyColor: palette.axis,
+            callbacks: {
+              label: (context) => {
+                const x = context.parsed.x != null ? context.parsed.x.toFixed(2) : 'n/a';
+                const y = context.parsed.y != null ? context.parsed.y.toFixed(2) : 'n/a';
+                return `${leftLabel}: ${x} | ${rightLabel}: ${y}`;
+              }
+            }
+          }
+        },
+        scales: {
+          x: {
+            type: 'linear',
+            display: true,
+            ticks: { color: palette.axis },
+            grid: { color: palette.grid },
+            title: { display: true, text: leftLabel + ' (base 100)', color: palette.axis }
+          },
+          y: {
+            type: 'linear',
+            display: true,
+            ticks: { color: palette.axis },
+            grid: { color: palette.grid },
+            title: { display: true, text: rightLabel + ' (base 100)', color: palette.axis }
           }
         }
       }
@@ -209,11 +406,32 @@
   }
 
   function buildCharts() {
+    if (!window.Chart) {
+      ensureChartJs(buildCharts);
+      return;
+    }
     buildZScoreChart();
     buildNormalizedChart();
+    buildDispersionChart();
   }
 
-  ensureChartJs(buildCharts);
+  window.__analysisBuildCharts = buildCharts;
+
+  function setupThemeObserver() {
+    if (window.__analysisThemeObserver) return;
+    const observer = new MutationObserver(() => {
+      window.requestAnimationFrame(() => {
+        if (typeof window.__analysisBuildCharts === 'function') {
+          window.__analysisBuildCharts();
+        }
+      });
+    });
+    observer.observe(document.documentElement, { attributes: true, attributeFilter: ['data-bs-theme'] });
+    window.__analysisThemeObserver = observer;
+  }
+
+  setupThemeObserver();
+  buildCharts();
 })();
 </script>
 {% endif %}
