@@ -1,70 +1,71 @@
 {% load static %}
 
 <div class="row g-3">
-  <div class="col-12 col-lg-4">
-    {% include "pairs/_analysis_metrics.html" %}
-  </div>
-  <div class="col-12 col-lg-8 d-flex flex-column gap-3">
-    <div class="card shadow-sm rounded-4 soft-card">
-      <div class="card-body">
-        <div class="d-flex justify-content-between align-items-baseline mb-3">
-          <div>
-            <span class="fw-semibold">Z-score</span>
-            <span class="text-body-secondary small ms-2">{{ pair_label }}</span>
-          </div>
-          <span class="text-body-secondary small">Atualizado {{ generated_at|date:"d/m/Y H:i" }}</span>
-        </div>
-        {% if data_points %}
-          <div class="position-relative" style="height:320px">
-            <canvas id="analysis-chart-{{ chart_id }}"></canvas>
-          </div>
-        {% else %}
-          <div class="text-body-secondary small">
-            Nao ha dados suficientes para plotar o grafico nesta janela.
-          </div>
-        {% endif %}
-      </div>
-    </div>
+  <div class="col-12">
+    <div class="d-flex flex-column gap-3">
+      {% include "pairs/_analysis_metrics.html" %}
 
-    <div class="card shadow-sm rounded-4 soft-card">
-      <div class="card-body">
-        <div class="d-flex justify-content-between align-items-baseline mb-3">
-          <div>
-            <span class="fw-semibold">Pares normalizados</span>
-            <span class="text-body-secondary small ms-2">{{ left_label }} vs {{ right_label }}</span>
+      <div class="card shadow-sm rounded-4 soft-card">
+        <div class="card-body">
+          <div class="d-flex justify-content-between align-items-baseline mb-3">
+            <div>
+              <span class="fw-semibold">Z-score</span>
+              <span class="text-body-secondary small ms-2">{{ pair_label }}</span>
+            </div>
+            <span class="text-body-secondary small">Atualizado {{ generated_at|date:"d/m/Y H:i" }}</span>
           </div>
-          <span class="text-body-secondary small">Atualizado {{ generated_at|date:"d/m/Y H:i" }}</span>
+          {% if data_points %}
+            <div class="position-relative" style="height:320px">
+              <canvas id="analysis-chart-{{ chart_id }}"></canvas>
+            </div>
+          {% else %}
+            <div class="text-body-secondary small">
+              Nao ha dados suficientes para plotar o grafico nesta janela.
+            </div>
+          {% endif %}
         </div>
-        {% if normalized_points %}
-          <div class="position-relative" style="height:320px">
-            <canvas id="analysis-normalized-{{ chart_id }}"></canvas>
-          </div>
-        {% else %}
-          <div class="text-body-secondary small">
-            Nao ha dados suficientes para plotar o grafico normalizado nesta janela.
-          </div>
-        {% endif %}
       </div>
-    </div>
 
-    <div class="card shadow-sm rounded-4 soft-card">
-      <div class="card-body">
-        <div class="d-flex justify-content-between align-items-baseline mb-3">
-          <div>
-            <span class="fw-semibold">Dispersao</span>
-            <span class="text-body-secondary small ms-2">{{ left_label }} vs {{ right_label }}</span>
+      <div class="card shadow-sm rounded-4 soft-card">
+        <div class="card-body">
+          <div class="d-flex justify-content-between align-items-baseline mb-3">
+            <div>
+              <span class="fw-semibold">Pares normalizados</span>
+              <span class="text-body-secondary small ms-2">{{ left_label }} vs {{ right_label }}</span>
+            </div>
+            <span class="text-body-secondary small">Atualizado {{ generated_at|date:"d/m/Y H:i" }}</span>
           </div>
-          <span class="text-body-secondary small">Atualizado {{ generated_at|date:"d/m/Y H:i" }}</span>
+          {% if normalized_points %}
+            <div class="position-relative" style="height:320px">
+              <canvas id="analysis-normalized-{{ chart_id }}"></canvas>
+            </div>
+          {% else %}
+            <div class="text-body-secondary small">
+              Nao ha dados suficientes para plotar o grafico normalizado nesta janela.
+            </div>
+          {% endif %}
         </div>
-        {% if dispersion_points %}
-          <div class="position-relative" style="height:320px">
-            <canvas id="analysis-dispersion-{{ chart_id }}"></canvas>
+      </div>
+
+      <div class="card shadow-sm rounded-4 soft-card">
+        <div class="card-body">
+          <div class="d-flex justify-content-between align-items-baseline mb-3">
+            <div>
+              <span class="fw-semibold">Dispersao</span>
+              <span class="text-body-secondary small ms-2">{{ left_label }} vs {{ right_label }}</span>
+            </div>
+            <span class="text-body-secondary small">Atualizado {{ generated_at|date:"d/m/Y H:i" }}</span>
           </div>
-        {% else %}
-          <div class="text-body-secondary small">
-            Nao ha dados suficientes para plotar o grafico de dispersao nesta janela.
-          </div>
-        {% endif %}
+          {% if dispersion_points %}
+            <div class="position-relative" style="height:320px">
+              <canvas id="analysis-dispersion-{{ chart_id }}"></canvas>
+            </div>
+          {% else %}
+            <div class="text-body-secondary small">
+              Nao ha dados suficientes para plotar o grafico de dispersao nesta janela.
+            </div>
+          {% endif %}
+        </div>
       </div>
     </div>
   </div>
