@@ -1,365 +1,259 @@
-# acoes/seed_assets.py
-from acoes.models import Asset
+"""Utilities to sync the Asset table with a curated list."""
+from __future__ import annotations
 
-# 30 ações mais líquidas da B3 (tickers + nomes simplificados)
-ASSETS = [
-    ("AALR3", "Alliança"),
-    ("ABCB4", "Banco ABC Brasil"),
-    ("ABEV3", "Ambev"),
-    ("ADMF3", "REAG TRUST S.A"),
-    ("AERI3", "Aeris Energy"),
-    ("AFLT3", "Afluente T"),
-    ("AGRO3", "BrasilAgro"),
-    ("AGXY3", "AgroGalaxy"),
-    ("AHEB3", "São Paulo Turismo"),
-    ("ALLD3", "Allied"),
-    ("ALOS3", "Allos"),
-    ("ALPA4", "Alpargatas"),
-    ("ALPK3", "Estapar"),
-    ("ALUP11", "Alupar"),
-    ("ALUP4", "Alupar"),
-    ("AMAR11", "Lojas Marisa"),
-    ("AMAR3", "Lojas Marisa"),
-    ("AMBP3", "Ambipar"),
-    ("AMER3", "Americanas"),
-    ("AMOB3", "Automob"),
-    ("ANIM3", "Ânima Educação"),
-    ("ARML3", "Armac"),
-    ("ASAI3", "Assaí"),
-    ("ATED3", "ATOM EDUCAÇÃO E EDITORA S.A."),
-    ("AURE3", "Auren Energia"),
-    ("AVLL3", "Alphaville"),
-    ("AZEV11", "Azevedo & Travassos"),
-    ("AZEV4", "Azevedo & Travassos"),
-    ("AZTE3", "AZT Energia"),
-    ("AZUL4", "Azul"),
-    ("AZZA3", "Arezzo"),
+import argparse
+import os
+import sys
+from collections import OrderedDict
+from pathlib import Path
+from typing import Iterable, Sequence, Tuple
+
+BASE_DIR = Path(__file__).resolve().parent.parent
+if str(BASE_DIR) not in sys.path:
+    sys.path.insert(0, str(BASE_DIR))
+
+if "DJANGO_SETTINGS_MODULE" not in os.environ:
+    os.environ.setdefault("DJANGO_SETTINGS_MODULE", "longshort.settings")
+
+import django
+from django.apps import apps
+
+if not apps.ready:
+    django.setup()
+
+from django.db import transaction
+
+from acoes.models import Asset
+from cotacoes.models import MissingQuoteLog, QuoteDaily, QuoteLive
+
+
+ASSETS: list[Tuple[str, str]] = [
+    ("ABEV3", "AMBEV S/A"),
+    ("ALOS3", "ALLOS"),
+    ("ANIM3", "ANIMA"),
+    ("ASAI3", "ASSAI"),
+    ("AURE3", "AUREN"),
+    ("AZZA3", "AZZAS 2154"),
     ("B3SA3", "B3"),
-    ("BALM4", "Baumer"),
-    ("BAUH4", "Excelsior"),
-    ("BAZA3", "Banco da Amazônia"),
-    ("BBAS3", "Banco do Brasil"),
-    ("BBDC4", "Banco Bradesco"),
-    ("BBSE3", "BB Seguridade"),
-    ("BDLL4", "Bardella"),
-    ("BEEF3", "Minerva"),
-    ("BEES4", "Banestes"),
-    ("BGIP4", "Banese"),
-    ("BHIA3", "Casas Bahia"),
-    ("BIED3", "BIED3"),
-    ("BIOM11", "Biomm"),
-    ("BIOM3", "Biomm"),
-    ("BLAU3", "Blau Farmacêutica"),
-    ("BMEB4", "Banco Mercantil do Brasil"),
-    ("BMGB4", "Banco BMG"),
-    ("BMIN4", "Banco Mercantil de Investimentos"),
-    ("BMKS3", "Monark"),
-    ("BMOB3", "Bemobi"),
-    ("BNBR3", "Banco do Nordeste"),
-    ("BOBR4", "Bombril"),
-    ("BPAC11", "Banco BTG Pactual"),
-    ("BPAC3", "Banco BTG Pactual"),
-    ("BPAC5", "Banco BTG Pactual"),
-    ("BPAN4", "Banco Pan"),
-    ("BRAP4", "Bradespar"),
-    ("BRAV3", "3R Petroleum"),
-    ("BRBI11", "BR Partners"),
-    ("BRKM3", "Braskem"),
-    ("BRKM5", "Braskem"),
-    ("BRKM6", "Braskem"),
-    ("BRSR3", "Banrisul"),
-    ("BRSR5", "Banrisul"),
-    ("BRSR6", "Banrisul"),
-    ("BRST3", "Brisanet"),
-    ("BSLI4", "Banco de Brasília"),
-    ("CALI11", "CALI11"),
-    ("CALI3", "Adolpho Lindenberg"),
-    ("CAMB3", "Cambuci"),
-    ("CAML3", "Camil Alimentos"),
-    ("CASH3", "Méliuz"),
-    ("CBAV3", "CBA"),
-    ("CBEE3", "Ampla Energia"),
-    ("CEAB3", "C&A"),
-    ("CEBR3", "CEB"),
-    ("CEBR5", "CEB"),
-    ("CEBR6", "CEB"),
-    ("CEDO4", "Cedro Têxtil"),
-    ("CEEB3", "COELBA"),
-    ("CEEB5", "COELBA"),
-    ("CEED3", "CEEE D"),
-    ("CEGR3", "Naturgy (CEG)"),
-    ("CGAS3", "Comgás"),
-    ("CGAS5", "Comgás"),
-    ("CGRA4", "Grazziotin"),
-    ("CLSC4", "Celesc"),
-    ("CMIG4", "Cemig"),
-    ("CMIN3", "CSN Mineração"),
-    ("COCE3", "Coelce"),
-    ("COCE5", "Coelce"),
-    ("COGN3", "Cogna"),
-    ("CPFE3", "CPFL Energia"),
-    ("CPLE3", "Copel"),
-    ("CPLE5", "Copel"),
-    ("CPLE6", "Copel"),
-    ("CRPG3", "Tronox Pigmentos"),
-    ("CRPG5", "Tronox Pigmentos"),
-    ("CRPG6", "Tronox Pigmentos"),
-    ("CSAN3", "Cosan"),
-    ("CSED3", "Cruzeiro do Sul Educacional"),
+    ("BBAS3", "BRASIL"),
+    ("BBSE3", "BBSEGURIDADE"),
+    ("BBDC4", "BRADESCO"),
+    ("BEEF3", "MINERVA"),
+    ("BPAC11", "BTGP BANCO"),
+    ("BRAP4", "BRADESPAR"),
+    ("BRAV3", "BRAVA"),
+    ("BRKM5", "BRASKEM"),
+    ("CEAB3", "CEA MODAS"),
+    ("CMIG4", "CEMIG"),
+    ("CMIN3", "CSNMINERACAO"),
+    ("COGN3", "COGNA ON"),
+    ("CPFE3", "CPFL ENERGIA"),
+    ("CPLE3", "COPEL"),
+    ("CSAN3", "COSAN"),
     ("CSMG3", "COPASA"),
-    ("CSNA3", "Siderúrgica Nacional"),
-    ("CSUD3", "CSU Cardsystem"),
-    ("CTAX3", "CTAX3"),
-    ("CTKA4", "Karsten"),
-    ("CTSA4", "Santanense"),
-    ("CURY3", "Cury"),
-    ("CVCB3", "CVC"),
-    ("CXSE3", "Caixa Seguridade"),
-    ("CYRE3", "Cyrela"),
-    ("DASA3", "Dasa"),
-    ("DESK3", "Desktop"),
-    ("DEXP4", "Dexxos"),
-    ("DIRR3", "Direcional"),
-    ("DMVF3", "D1000 Varejo Farma"),
-    ("DOHL4", "Döhler"),
-    ("DOTZ3", "Dotz"),
-    ("DTCY3", "Dtcom"),
-    ("DXCO3", "Dexco"),
-    ("EALT4", "Electro Aço Altona"),
-    ("ECOR3", "EcoRodovias"),
-    ("EGIE3", "Engie"),
-    ("EKTR4", "Elektro"),
-    ("ELET3", "Eletrobras"),
-    ("ELET6", "Eletrobras"),
-    ("EMAE4", "EMAE"),
-    ("EMBR3", "Embraer"),
-    ("ENEV3", "Eneva"),
-    ("ENGI11", "Energisa"),
-    ("ENGI4", "Energisa"),
-    ("ENJU3", "Enjoei"),
-    ("ENMT4", "Energisa MT"),
-    ("EPAR3", "Embpar Participações"),
-    ("EQMA3B", "Equatorial Maranhão"),
-    ("EQPA3", "Equatorial Energia Pará"),
-    ("EQPA5", "Equatorial Energia Pará"),
-    ("EQTL3", "Equatorial Energia"),
-    ("ESPA3", "Espaçolaser"),
-    ("ESTR4", "Estrela"),
-    ("ETER3", "Eternit"),
-    ("EUCA4", "Eucatex"),
-    ("EVEN3", "Even"),
+    ("CSNA3", "SID NACIONAL"),
+    ("CURY3", "CURY S/A"),
+    ("CXSE3", "CAIXA SEGURI"),
+    ("CYRE3", "CYRELA REALT"),
+    ("CVCB3", "CVC BRASIL"),
+    ("DIRR3", "DIRECIONAL"),
+    ("ECOR3", "ECORODOVIAS"),
+    ("EGIE3", "ENGIE BRASIL"),
+    ("ELET3", "ELETROBRAS"),
+    ("EMBR3", "EMBRAER"),
+    ("ENEV3", "ENEVA"),
+    ("ENGI11", "ENERGISA"),
+    ("EQTL3", "EQUATORIAL"),
     ("EZTC3", "EZTEC"),
-    ("FESA4", "Ferbasa"),
-    ("FHER3", "Fertilizantes Heringer"),
-    ("FICT3", "Fictor Alimentos"),
-    ("FIEI3", "Fica"),
-    ("FIQE3", "Unifique"),
-    ("FLRY3", "Fleury"),
-    ("FRAS3", "Fras-le"),
-    ("GEPA4", "Rio Paranapanema Energia"),
-    ("GFSA3", "Gafisa"),
-    ("GGBR4", "Gerdau"),
+    ("FLRY3", "FLEURY"),
+    ("GGBR4", "GERDAU"),
     ("GGPS3", "GPS"),
-    ("GMAT3", "Grupo Mateus"),
-    ("GOAU4", "Metalúrgica Gerdau"),
-    ("GRND3", "Grendene"),
-    ("GSHP3", "General Shopping & Outlets"),
-    ("GUAR3", "Guararapes"),
-    ("HAGA4", "Haga"),
-    ("HAPV3", "Hapvida"),
-    ("HBOR3", "Helbor"),
-    ("HBRE3", "HBR Realty"),
-    ("HBSA3", "Hidrovias do Brasil"),
-    ("HBTS5", "Habitasul"),
-    ("HETA4", "Hercules"),
-    ("HOOT4", "Hotéis Othon"),
-    ("HYPE3", "Hypera"),
-    ("IFCM3", "Infracommerce"),
-    ("IGTI11", "Jereissati Participações"),
-    ("IGTI4", "Jereissati Participações"),
-    ("INEP4", "Inepar"),
-    ("INTB3", "Intelbras"),
-    ("IRBR3", "IRB Brasil RE"),
-    ("ISAE4", "ISA Energia"),
-    ("ITSA4", "Itaúsa"),
-    ("ITUB4", "Itaú Unibanco"),
-    ("JALL3", "Jalles Machado"),
-    ("JFEN3", "João Fortes"),
-    ("JHSF3", "JHSF"),
-    ("JOPA3", "Josapar"),
-    ("JSLG3", "JSL"),
-    ("KEPL3", "Kepler Weber"),
-    ("KLBN11", "Klabin"),
-    ("KLBN4", "Klabin"),
-    ("LAND3", "Terra Santa"),
-    ("LAVV3", "Lavvi Incorporadora"),
-    ("LEVE3", "Mahle Metal Leve"),
-    ("LIGT3", "Light"),
-    ("LJQQ3", "Lojas Quero-Quero"),
-    ("LOGG3", "LOG CP"),
-    ("LOGN3", "Log-In"),
-    ("LPSB3", "Lopes"),
-    ("LREN3", "Lojas Renner"),
-    ("LUPA11", "LUPA11"),
-    ("LUPA3", "Lupatech"),
-    ("LUXM4", "Trevisa"),
-    ("LWSA3", "Locaweb"),
-    ("MATD3", "Mater Dei"),
-    ("MBRF3", "Marfrig"),
-    ("MDIA3", "M. Dias Branco"),
-    ("MDNE3", "Moura Dubeux"),
-    ("MEAL3", "IMC Alimentação"),
-    ("MELK3", "Melnick"),
-    ("MERC4", "Mercantil do Brasil Financeira"),
-    ("MGEL4", "Mangels"),
-    ("MGLU3", "Magazine Luiza"),
-    ("MILS3", "Mills"),
-    ("MLAS3", "Multilaser"),
-    ("MNDL3", "Mundial"),
-    ("MNPR3", "Minupar"),
-    ("MOAR3", "Monteiro Aranha"),
-    ("MOTV3", "Motiva"),
-    ("MOVI3", "Movida"),
-    ("MRSA3B", "MRS Logística"),
-    ("MRSA5B", "MRS Logística"),
-    ("MRSA6B", "MRS Logística"),
+    ("GMAT3", "GRUPO MATEUS"),
+    ("GOAU4", "GERDAU MET"),
+    ("HAPV3", "HAPVIDA"),
+    ("HYPE3", "HYPERA"),
+    ("IGTI11", "IGUATEMI S.A"),
+    ("INTB3", "INTELBRAS"),
+    ("IRBR3", "IRBBRASIL RE"),
+    ("ISAE4", "ISA ENERGIA"),
+    ("ITSA4", "ITAUSA"),
+    ("ITUB4", "ITAUUNIBANCO"),
+    ("KLBN11", "KLABIN S/A"),
+    ("LREN3", "LOJAS RENNER"),
+    ("LWSA3", "LWSA"),
+    ("MGLU3", "MAGAZ LUIZA"),
+    ("MBRF3", "MARFRIG"),
+    ("MOVI3", "MOVIDA"),
+    ("MOTV3", "MOTIVA SA"),
     ("MRVE3", "MRV"),
-    ("MSPA4", "Melhoramentos"),
-    ("MTRE3", "Mitre Realty"),
-    ("MTSA4", "Metisa"),
-    ("MULT3", "Multiplan"),
-    ("MWET4", "Wetzel"),
-    ("MYPK3", "Iochpe-Maxion"),
+    ("MULT3", "MULTIPLAN"),
     ("NATU3", "NATURA"),
-    ("NEOE3", "Neoenergia"),
-    ("NEXP3", "Brasil Brokers"),
-    ("NGRD3", "Neogrid"),
-    ("NORD3", "Nordon"),
-    ("NUTR3", "Nutriplant"),
-    ("ODPV3", "Odontoprev"),
-    ("OFSA3", "Ourofino Saúde Animal"),
-    ("OIBR4", "Oi"),
-    ("ONCO3", "Oncoclínicas"),
-    ("OPCT3", "OceanPact"),
-    ("ORVR3", "Orizon"),
-    ("OSXB3", "OSX Brasil"),
-    ("PATI4", "Panatlântica"),
-    ("PCAR3", "Grupo Pão de Açúcar"),
-    ("PDGR3", "PDG Realty"),
-    ("PDTC3", "Padtec"),
-    ("PEAB4", "Participações Aliança da Bahia"),
-    ("PETR4", "Petrobras"),
-    ("PETZ3", "Petz"),
-    ("PFRM3", "Profarma"),
-    ("PGMN3", "Pague Menos"),
-    ("PINE11", "Banco Pine"),
-    ("PINE4", "Banco Pine"),
-    ("PLAS3", "Plascar"),
-    ("PLPL3", "Plano&Plano"),
-    ("PMAM3", "Paranapanema"),
-    ("PNVL3", "Dimed"),
-    ("POMO4", "Marcopolo"),
-    ("PORT3", "Wilson Sons"),
-    ("POSI3", "Positivo"),
-    ("PPLA11", "PPLA"),
-    ("PRIO3", "PetroRio"),
-    ("PRNR3", "Priner"),
-    ("PSSA3", "Porto Seguro"),
-    ("PSVM11", "PORTO VM"),
-    ("PTBL3", "Portobello"),
-    ("PTNT4", "Pettenati"),
-    ("QUAL3", "Qualicorp"),
-    ("RADL3", "RaiaDrogasil"),
-    ("RAIL3", "Rumo"),
-    ("RAIZ4", "Raízen"),
-    ("RANI3", "Irani"),
-    ("RAPT4", "Randon"),
-    ("RCSL4", "Recrusul"),
-    ("RDNI3", "RNI"),
-    ("RDOR3", "Rede D'Or"),
-    ("REAG3", "REAG3"),
-    ("RECV3", "PetroRecôncavo"),
-    ("REDE3", "Rede Energia"),
-    ("RENT3", "Localiza"),
-    ("RNEW4", "Renova Energia"),
-    ("ROMI3", "Indústrias ROMI"),
-    ("RPAD3", "Alfa Holdings"),
-    ("RPMG3", "Refinaria de Manguinhos"),
-    ("RSID3", "Rossi Residencial"),
-    ("RSUL4", "Metalúrgica Riosulense"),
-    ("RVEE3", "REVEE"),
-    ("SANB11", "Banco Santander"),
-    ("SANB4", "Banco Santander"),
-    ("SAPR11", "Sanepar"),
-    ("SAPR4", "Sanepar"),
-    ("SBFG3", "Grupo SBF"),
-    ("SBSP3", "Sabesp"),
-    ("SCAR3", "São Carlos"),
-    ("SEER3", "Ser Educacional"),
-    ("SEQL3", "Sequoia Logística"),
-    ("SHOW3", "Time For Fun"),
-    ("SHUL4", "Schulz"),
-    ("SIMH3", "Simpar"),
-    ("SLCE3", "SLC Agrícola"),
-    ("SMFT3", "Smart Fit"),
-    ("SMTO3", "São Martinho"),
-    ("SNSY5", "Sansuy"),
-    ("SOJA3", "Boa Safra Sementes"),
-    ("SOND5", "Sondotécnica"),
-    ("SRNA3", "Serena Energia"),
-    ("STBP3", "Santos Brasil"),
-    ("SUZB3", "Suzano"),
-    ("SYNE3", "SYN"),
-    ("TAEE11", "Taesa"),
-    ("TAEE4", "Taesa"),
-    ("TASA4", "Taurus"),
-    ("TCSA3", "Tecnisa"),
-    ("TECN3", "Technos"),
-    ("TELB4", "Telebras"),
-    ("TEND3", "Construtora Tenda"),
-    ("TFCO4", "Track & Field"),
-    ("TGMA3", "Tegma"),
+    ("PCAR3", "P.ACUCAR-CBD"),
+    ("PETR4", "PETROBRAS"),
+    ("PETZ3", "PETZ"),
+    ("POMO4", "MARCOPOLO"),
+    ("PRIO3", "PETRORIO"),
+    ("PSSA3", "PORTO SEGURO"),
+    ("RADL3", "RAIADROGASIL"),
+    ("RAIL3", "RUMO S.A."),
+    ("RAIZ4", "RAIZEN"),
+    ("RAPT4", "RANDON PART"),
+    ("RDOR3", "REDE D OR"),
+    ("RECV3", "PETRORECSA"),
+    ("RENT3", "LOCALIZA"),
+    ("SANB11", "SANTANDER BR"),
+    ("SAPR11", "SANEPAR"),
+    ("SBSP3", "SABESP"),
+    ("SLCE3", "SLC AGRICOLA"),
+    ("SMFT3", "SMART FIT"),
+    ("SMTO3", "SAO MARTINHO"),
+    ("SRNA3", "SERENA"),
+    ("SUZB3", "SUZANO S.A."),
+    ("TAEE11", "TAESA"),
+    ("TEND3", "TENDA"),
     ("TIMS3", "TIM"),
-    ("TKNO4", "Tekno"),
-    ("TOKY3", "TOKY3"),
-    ("TOTS3", "Totvs"),
-    ("TPIS3", "Triunfo"),
-    ("TRAD3", "Traders Club"),
-    ("TRIS3", "Trisul"),
-    ("TTEN3", "3tentos"),
-    ("TUPY3", "Tupy"),
-    ("UCAS3", "Unicasa"),
-    ("UGPA3", "Ultrapar"),
-    ("UNIP3", "Unipar"),
-    ("UNIP5", "Unipar"),
-    ("UNIP6", "Unipar"),
-    ("USIM3", "Usiminas"),
-    ("USIM5", "Usiminas"),
-    ("VALE3", "Vale"),
-    ("VAMO3", "Grupo Vamos"),
-    ("VBBR3", "Vibra Energia"),
-    ("VITT3", "Vittia"),
-    ("VIVA3", "Vivara"),
-    ("VIVR3", "Viver"),
-    ("VIVT3", "Vivo"),
-    ("VLID3", "Valid"),
-    ("VSTE3", "LE LIS BLANC"),
-    ("VTRU3", "VITRUBREPCOM"),
-    ("VULC3", "Vulcabras"),
-    ("VVEO3", "Viveo"),
+    ("TOTS3", "TOTVS"),
+    ("UGPA3", "ULTRAPAR"),
+    ("USIM5", "USIMINAS"),
+    ("VALE3", "VALE"),
+    ("VAMO3", "VAMOS"),
+    ("VBBR3", "VIBRA"),
+    ("VIVA3", "VIVARA S.A."),
+    ("VIVT3", "TELEF BRASIL"),
     ("WEGE3", "WEG"),
-    ("WEST3", "Westwing"),
-    ("WHRL4", "Whirlpool"),
-    ("WIZC3", "Wiz Soluções"),
-    ("WLMM4", "WLM"),
-    ("YDUQ3", "YDUQS"),
-    ("ZAMP3", "Zamp"),
+    ("YDUQ3", "YDUQS PART"),
 ]
 
-def run():
-    for ticker, name in ASSETS:
-        obj, created = Asset.objects.get_or_create(
-            ticker=ticker,
-            defaults={"name": name, "is_active": True},
-        )
-        print(f"{'✔️ Inserido' if created else '↩️ Já existia'}: {obj.ticker}")
+
+def _normalise_assets(assets: Iterable[Tuple[str, str]]) -> OrderedDict[str, str]:
+    cleaned: OrderedDict[str, str] = OrderedDict()
+    for raw_ticker, raw_name in assets:
+        ticker = (raw_ticker or "").strip().upper()
+        name = (raw_name or "").strip()
+        if not ticker:
+            continue
+        cleaned[ticker] = name or ticker
+    return cleaned
+
+
+def _purge_related(asset_ids: Sequence[int]) -> dict[str, int]:
+    if not asset_ids:
+        return {"quotes": 0, "live": 0, "logs": 0}
+    quotes = QuoteDaily.objects.filter(asset_id__in=asset_ids).delete()[0]
+    live = QuoteLive.objects.filter(asset_id__in=asset_ids).delete()[0]
+    logs = MissingQuoteLog.objects.filter(asset_id__in=asset_ids).delete()[0]
+    return {"quotes": quotes, "live": live, "logs": logs}
+
+
+@transaction.atomic
+def run(
+    assets: Iterable[Tuple[str, str]] = ASSETS,
+    *,
+    destructive: bool = True,
+    update_names: bool = True,
+    reactivate: bool = True,
+    purge_quotes: bool = True,
+    deactivate_removed: bool = True,
+    dry_run: bool = False,
+) -> None:
+    """
+    Sync the Asset table so it mirrors the provided list.
+
+    destructive=True removes assets that are no longer listed.
+    purge_quotes=True clears QuoteDaily/QuoteLive/MissingQuoteLog for removed assets.
+    deactivate_removed=True marks removed assets as inactive when destructive=False.
+    dry_run=True prints the intended actions without touching the database.
+    """
+
+    desired = _normalise_assets(assets)
+    existing = {asset.ticker: asset for asset in Asset.objects.all()}
+
+    to_create = [(ticker, desired[ticker]) for ticker in desired if ticker not in existing]
+    to_keep = {ticker: existing[ticker] for ticker in desired if ticker in existing}
+    to_delete_qs = Asset.objects.exclude(ticker__in=desired.keys())
+    removed_ids = list(to_delete_qs.values_list("id", flat=True))
+
+    if dry_run:
+        print(f"[seed-assets] create={len(to_create)} keep={len(to_keep)} remove={len(removed_ids)}")
+        if purge_quotes and removed_ids:
+            print(f"[seed-assets] would purge quotes/logs for {len(removed_ids)} assets")
+        return
+
+    inserted = 0
+    updated = 0
+    reactivated = 0
+
+    for ticker, name in to_create:
+        Asset.objects.create(ticker=ticker, name=name, is_active=True)
+        inserted += 1
+
+    for ticker, asset in to_keep.items():
+        desired_name = desired[ticker]
+        has_changed = False
+        if update_names and asset.name != desired_name:
+            asset.name = desired_name
+            has_changed = True
+        if reactivate and not asset.is_active:
+            asset.is_active = True
+            has_changed = True
+            reactivated += 1
+        if has_changed:
+            asset.save()
+            updated += 1
+
+    purged = {"quotes": 0, "live": 0, "logs": 0}
+    if purge_quotes and removed_ids:
+        purged = _purge_related(removed_ids)
+
+    deleted_assets = 0
+    deactivated_assets = 0
+    if removed_ids:
+        if destructive:
+            deleted_assets = to_delete_qs.delete()[0]
+        elif deactivate_removed:
+            deactivated_assets = to_delete_qs.update(is_active=False)
+
+    print(
+        "[seed-assets] "
+        f"created={inserted} updated={updated} reactivated={reactivated} "
+        f"deleted={deleted_assets} deactivated={deactivated_assets} "
+        f"purged_quotes={purged['quotes']} purged_live={purged['live']} purged_logs={purged['logs']}"
+    )
+
+
+def _parse_args(argv: Sequence[str]) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Synchronize Asset table with curated list.")
+    parser.add_argument("--dry-run", action="store_true", help="Only show what would change.")
+    parser.add_argument(
+        "--keep-old",
+        action="store_true",
+        help="Do not delete assets that are not in the curated list (they will be deactivated).",
+    )
+    parser.add_argument(
+        "--skip-purge",
+        action="store_true",
+        help="Keep quotes/logs for assets that drop out of the curated list.",
+    )
+    parser.add_argument(
+        "--no-update-names",
+        action="store_true",
+        help="Skip updating asset names for already existing tickers.",
+    )
+    parser.add_argument(
+        "--no-reactivate",
+        action="store_true",
+        help="Do not force is_active=True for assets present in the curated list.",
+    )
+    return parser.parse_args(argv)
+
+
+if __name__ == "__main__":
+    args = _parse_args(sys.argv[1:])
+    run(
+        destructive=not args.keep_old,
+        purge_quotes=not args.skip_purge,
+        update_names=not args.no_update_names,
+        reactivate=not args.no_reactivate,
+        dry_run=args.dry_run,
+        deactivate_removed=True,
+    )

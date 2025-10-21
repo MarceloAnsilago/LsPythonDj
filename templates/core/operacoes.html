@@ -1,0 +1,174 @@
+{% extends "_base.html" %}
+
+{% block content %}
+<div class="py-3">
+  <div class="mb-3">
+    <h1 class="h5 fw-semibold mb-1">Operacoes</h1>
+    <p class="text-body-secondary small mb-0">Informe manualmente o par ou carregue os dados trazidos da analise.</p>
+  </div>
+
+  {% if prefilled %}
+    <div class="alert alert-primary small mb-3">
+      Dados importados da analise. Reveja os campos antes de iniciar a operacao.
+    </div>
+  {% endif %}
+
+  <div class="row g-3">
+    <div class="col-lg-8">
+      <div class="card shadow-sm rounded-4 soft-card h-100">
+        <div class="card-body">
+          <h2 class="h6 fw-semibold mb-3">Configurar Par</h2>
+          <form id="operationDraftForm" class="row g-3" autocomplete="off" novalidate>
+            <input type="hidden" name="pair_id" value="{{ initial.pair_id }}">
+            <input type="hidden" name="source" value="{{ initial.source }}">
+            <div class="col-sm-6">
+              <label for="tickerLeft" class="form-label small text-body-secondary">Ativo esquerdo</label>
+              <input type="text"
+                     class="form-control"
+                     id="tickerLeft"
+                     name="left"
+                     placeholder="PETR4"
+                     value="{{ initial.left }}"
+                     maxlength="16">
+            </div>
+            <div class="col-sm-6">
+              <label for="tickerRight" class="form-label small text-body-secondary">Ativo direito</label>
+              <input type="text"
+                     class="form-control"
+                     id="tickerRight"
+                     name="right"
+                     placeholder="VALE3"
+                     value="{{ initial.right }}"
+                     maxlength="16">
+            </div>
+            <div class="col-sm-4">
+              <label for="windowSelect" class="form-label small text-body-secondary">Janela de referencia</label>
+              <select class="form-select" id="windowSelect" name="window">
+                {% for item in window_options %}
+                  <option value="{{ item }}" {% if item == initial.window %}selected{% endif %}>{{ item }} dias</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="col-sm-8 d-flex align-items-end">
+              <div class="text-body-secondary small">
+                Escolha a janela sugerida pela analise ou ajuste manualmente conforme sua estrategia.
+              </div>
+            </div>
+            <div class="col-12">
+              <div class="d-flex gap-2">
+                <button type="button" class="btn btn-primary" disabled title="Fluxo de execucao sera habilitado na proxima etapa">
+                  Salvar e iniciar (em breve)
+                </button>
+                <button type="button" class="btn btn-outline-secondary" disabled>
+                  Apenas registrar (em breve)
+                </button>
+              </div>
+            </div>
+          </form>
+        </div>
+      </div>
+    </div>
+
+    <div class="col-lg-4">
+      <div class="card shadow-sm rounded-4 h-100">
+        <div class="card-body d-flex flex-column gap-3">
+          <div>
+            <h2 class="h6 fw-semibold mb-3">Resumo</h2>
+            <dl class="row mb-0 small">
+              <dt class="col-5 text-body-secondary">Origem</dt>
+              <dd class="col-7">
+                {% if initial.source == "analysis" %}
+                  Analise
+                {% else %}
+                  Manual
+                {% endif %}
+              </dd>
+              <dt class="col-5 text-body-secondary">Par</dt>
+              <dd class="col-7">
+                {% if pair_obj %}
+                  {{ pair_obj.left.ticker }} x {{ pair_obj.right.ticker }}
+                  <span class="text-body-tertiary d-block">ID #{{ pair_obj.pk }}</span>
+                {% elif initial.left or initial.right %}
+                  {{ initial.left|default:"--" }} x {{ initial.right|default:"--" }}
+                {% else %}
+                  --
+                {% endif %}
+              </dd>
+              <dt class="col-5 text-body-secondary">Janela</dt>
+              <dd class="col-7">{{ initial.window }} dias</dd>
+              {% if summary.zscore_label %}
+                <dt class="col-5 text-body-secondary">Z-score</dt>
+                <dd class="col-7">{{ summary.zscore_label }}</dd>
+              {% endif %}
+            </dl>
+          </div>
+          {% if summary.note %}
+            <p class="small text-body-secondary mb-0">{{ summary.note }}</p>
+          {% endif %}
+          <div class="d-grid gap-2">
+            <div class="border rounded-3 p-3">
+              <div class="d-flex justify-content-between align-items-start">
+                <div>
+                  <div class="text-uppercase small text-danger fw-semibold">{{ summary.sell.label }}</div>
+                  <div class="fw-semibold">{{ summary.sell.ticker|default:"--" }}</div>
+                  {% if summary.sell.name %}
+                    <div class="text-body-secondary small">{{ summary.sell.name }}</div>
+                  {% endif %}
+                </div>
+                <div class="text-end">
+                  {% if summary.sell.price_label %}
+                    <div class="fw-semibold">{{ summary.sell.price_label }}</div>
+                    {% if summary.sell.source_label or summary.sell.updated_label %}
+                      <div class="text-body-tertiary small">
+                        {% if summary.sell.source_label %}{{ summary.sell.source_label }}{% endif %}
+                        {% if summary.sell.source_label and summary.sell.updated_label %}&bull; {% endif %}
+                        {% if summary.sell.updated_label %}{{ summary.sell.updated_label }}{% endif %}
+                      </div>
+                    {% endif %}
+                  {% else %}
+                    <div class="text-body-secondary small">Cotacao indisponivel.</div>
+                    {% if summary.sell.error_label %}
+                      <div class="text-danger small">{{ summary.sell.error_label }}</div>
+                    {% endif %}
+                  {% endif %}
+                </div>
+              </div>
+            </div>
+            <div class="border rounded-3 p-3">
+              <div class="d-flex justify-content-between align-items-start">
+                <div>
+                  <div class="text-uppercase small text-success fw-semibold">{{ summary.buy.label }}</div>
+                  <div class="fw-semibold">{{ summary.buy.ticker|default:"--" }}</div>
+                  {% if summary.buy.name %}
+                    <div class="text-body-secondary small">{{ summary.buy.name }}</div>
+                  {% endif %}
+                </div>
+                <div class="text-end">
+                  {% if summary.buy.price_label %}
+                    <div class="fw-semibold">{{ summary.buy.price_label }}</div>
+                    {% if summary.buy.source_label or summary.buy.updated_label %}
+                      <div class="text-body-tertiary small">
+                        {% if summary.buy.source_label %}{{ summary.buy.source_label }}{% endif %}
+                        {% if summary.buy.source_label and summary.buy.updated_label %}&bull; {% endif %}
+                        {% if summary.buy.updated_label %}{{ summary.buy.updated_label }}{% endif %}
+                      </div>
+                    {% endif %}
+                  {% else %}
+                    <div class="text-body-secondary small">Cotacao indisponivel.</div>
+                    {% if summary.buy.error_label %}
+                      <div class="text-danger small">{{ summary.buy.error_label }}</div>
+                    {% endif %}
+                  {% endif %}
+                </div>
+              </div>
+            </div>
+          </div>
+          <p class="small text-body-tertiary mb-0">
+            Cotacoes obtidas via Yahoo Finance ao carregar a pagina. Ajuste a janela ou os tickers para atualizar.
+          </p>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

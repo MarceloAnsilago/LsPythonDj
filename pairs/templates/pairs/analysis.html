@@ -36,7 +36,20 @@
                   hx-swap="innerHTML">
             Atualizar grafico
           </button>
-          <button class="btn btn-outline-secondary btn-sm" disabled title="Em breve">Iniciar operacao</button>
+          <a class="btn btn-outline-secondary btn-sm"
+             id="startOperationBtn"
+             data-base-url="{% url 'core:operacoes' %}"
+             data-source="analysis"
+             {% if pair.pk %}
+               data-mode="pair"
+               data-pair="{{ pair.pk }}"
+             {% else %}
+               data-mode="tickers"
+               data-left="{{ pair.left.ticker }}"
+               data-right="{{ pair.right.ticker }}"
+             {% endif %}>
+            Iniciar operacao
+          </a>
         </div>
       </div>
     </div>
@@ -49,4 +62,50 @@
        hx-swap="innerHTML">
   </div>
 </div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+  (function () {
+    const btn = document.getElementById("startOperationBtn");
+    if (!btn) {
+      return;
+    }
+    const selectEl = document.getElementById("selWindow");
+    const baseUrl = btn.dataset.baseUrl || "{% url 'core:operacoes' %}";
+    const mode = btn.dataset.mode || "tickers";
+    const source = btn.dataset.source || "analysis";
+    const pairId = btn.dataset.pair || "";
+    const leftTicker = btn.dataset.left || "";
+    const rightTicker = btn.dataset.right || "";
+
+    const buildHref = () => {
+      const params = new URLSearchParams();
+      if (selectEl && selectEl.value) {
+        params.set("window", selectEl.value);
+      }
+      if (source) {
+        params.set("source", source);
+      }
+      if (mode === "pair" && pairId) {
+        params.set("pair", pairId);
+      } else if (mode === "tickers") {
+        if (leftTicker) {
+          params.set("left", leftTicker);
+        }
+        if (rightTicker) {
+          params.set("right", rightTicker);
+        }
+      }
+      const base = baseUrl.endsWith("?") ? baseUrl.slice(0, -1) : baseUrl;
+      const qs = params.toString();
+      btn.href = qs ? `${base}?${qs}` : base;
+    };
+
+    if (selectEl) {
+      selectEl.addEventListener("change", buildHref);
+    }
+    buildHref();
+  })();
+</script>
 {% endblock %}

@@ -1,0 +1,106 @@
+{% extends "_base.html" %}
+{% load widget_tweaks %}
+
+{% block title %}Configuracoes - LongShortDjango{% endblock %}
+
+{% block content %}
+<div class="py-3">
+  <h1 class="h5 mb-3 fw-semibold">Configuracoes de metricas</h1>
+
+  <form method="post" class="card shadow-sm rounded-4 soft-card">
+    {% csrf_token %}
+    <div class="card-body p-4">
+      {% if form.non_field_errors %}
+        <div class="alert alert-danger">{{ form.non_field_errors }}</div>
+      {% endif %}
+
+      <div class="row g-3">
+        <div class="col-12 col-md-4">
+          <label class="form-label small text-body-secondary" for="{{ form.base_window.id_for_label }}">
+            {{ form.base_window.label }}
+          </label>
+          {{ form.base_window|add_class:"form-control" }}
+          {% if form.base_window.help_text %}
+            <div class="form-text">{{ form.base_window.help_text }}</div>
+          {% endif %}
+          {{ form.base_window.errors }}
+        </div>
+
+        <div class="col-12 col-md-8">
+          <label class="form-label small text-body-secondary" for="{{ form.default_windows.id_for_label }}">
+            {{ form.default_windows.label }}
+          </label>
+          {{ form.default_windows|add_class:"form-control" }}
+          <div class="form-text">
+            {{ form.default_windows.help_text }}<br>
+            Janelas atuais: <code>{{ sample_windows }}</code>
+          </div>
+          {{ form.default_windows.errors }}
+        </div>
+
+        <div class="col-12 col-md-4">
+          <label class="form-label small text-body-secondary" for="{{ form.adf_min.id_for_label }}">
+            {{ form.adf_min.label }}
+          </label>
+          {{ form.adf_min|add_class:"form-control" }}
+          {{ form.adf_min.errors }}
+        </div>
+
+        <div class="col-12 col-md-4">
+          <label class="form-label small text-body-secondary" for="{{ form.zscore_abs_min.id_for_label }}">
+            {{ form.zscore_abs_min.label }}
+          </label>
+          {{ form.zscore_abs_min|add_class:"form-control" }}
+          {{ form.zscore_abs_min.errors }}
+        </div>
+
+        <div class="col-12 col-md-4">
+          <label class="form-label small text-body-secondary" for="{{ form.beta_window.id_for_label }}">
+            {{ form.beta_window.label }}
+          </label>
+          {{ form.beta_window|add_class:"form-control" }}
+          <div class="form-text">Usada no grafico de beta movel.</div>
+          {{ form.beta_window.errors }}
+        </div>
+
+        <div class="col-12 col-md-4">
+          <label class="form-label small text-body-secondary" for="{{ form.half_life_max.id_for_label }}">
+            {{ form.half_life_max.label }}
+          </label>
+          {{ form.half_life_max|add_class:"form-control" }}
+          <div class="form-text">Zero desativa o filtro. Limites menores privilegiam pares que convergem rapido.</div>
+          {{ form.half_life_max.errors }}
+        </div>
+      </div>
+    </div>
+
+    <div class="card-footer d-flex gap-2 justify-content-end">
+      <a class="btn btn-outline-secondary" href="{% url 'core:home' %}">Voltar</a>
+      <button class="btn btn-primary">Salvar</button>
+    </div>
+  </form>
+
+  {% if metrics_help %}
+    <section class="mt-4">
+      <h2 class="h6 fw-semibold mb-3">O que cada metrica significa</h2>
+      <div class="row g-3 row-cols-1 row-cols-md-2 row-cols-xl-3">
+        {% for item in metrics_help %}
+          <div class="col">
+            <div class="card h-100 shadow-sm border-0 soft-card">
+              <div class="card-body">
+                <div class="d-flex align-items-center gap-2 mb-2">
+                  {% if item.icon %}
+                    <i class="bi {{ item.icon }} text-primary"></i>
+                  {% endif %}
+                  <span class="fw-semibold">{{ item.title }}</span>
+                </div>
+                <p class="text-body-secondary small mb-0">{{ item.description }}</p>
+              </div>
+            </div>
+          </div>
+        {% endfor %}
+      </div>
+    </section>
+  {% endif %}
+</div>
+{% endblock %}
