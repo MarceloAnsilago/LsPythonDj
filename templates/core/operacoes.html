@@ -162,6 +162,20 @@
                 </div>
               </div>
             </div>
+            {% if summary.pair_metrics_display %}
+              <div class="border rounded-3 p-3 bg-body-tertiary">
+                <dl class="row small mb-0">
+                  {% for metric in summary.pair_metrics_display %}
+                    <dt class="col-6 text-body-secondary">{{ metric.label }}</dt>
+                    <dd class="col-6 text-end">{{ metric.value }}</dd>
+                  {% endfor %}
+                </dl>
+              </div>
+            {% elif summary.pair_metrics_payload is not None %}
+              <div class="border rounded-3 p-3 bg-body-tertiary small text-body-secondary">
+                Métricas do par indisponíveis no momento.
+              </div>
+            {% endif %}
           </div>
           <p class="small text-body-tertiary mb-0">
             Cotacoes obtidas via Yahoo Finance ao carregar a pagina. Ajuste a janela ou os tickers para atualizar.
@@ -169,6 +183,80 @@
         </div>
       </div>
     </div>
+  </div>
+</div>
+
+<div class="card shadow-sm rounded-4 soft-card mt-3">
+  <div class="card-body">
+    <h2 class="h6 fw-semibold mb-3">Valores</h2>
+    <form method="get" class="row gy-3 gx-2">
+      {% for key, value in request.GET.items %}
+        {% if key != "valor" and key != "capital" %}
+          <input type="hidden" name="{{ key }}" value="{{ value }}">
+        {% endif %}
+      {% endfor %}
+      <div class="col-md-6">
+        <label for="valorOperacao" class="form-label small text-body-secondary">Valor disponivel</label>
+        <div class="input-group input-group-sm">
+          <span class="input-group-text">R$</span>
+          <input type="text"
+                 class="form-control"
+                 id="valorOperacao"
+                 name="valor"
+                 inputmode="decimal"
+                 placeholder="10000.00"
+                 value="{{ valuation.input_display }}">
+        </div>
+        {% if valuation.suggested_label %}
+          <div class="form-text text-body-secondary">
+            Valor minimo recomendado: {{ valuation.suggested_label }}
+            {% if valuation.input_adjusted %}
+              (ajustado automaticamente)
+            {% endif %}
+          </div>
+        {% endif %}
+        {% if valuation.input_adjusted_message %}
+          <div class="form-text text-warning">{{ valuation.input_adjusted_message }}</div>
+        {% endif %}
+      </div>
+      <div class="col-md-3 d-flex align-items-end">
+        <button type="submit" class="btn btn-outline-primary btn-sm">Calcular</button>
+      </div>
+    </form>
+
+    {% if valuation.error %}
+      <div class="alert alert-warning small mt-3 mb-0">{{ valuation.error }}</div>
+    {% elif valuation.has_result %}
+      <div class="mt-3">
+        <dl class="row small mb-2">
+          <dt class="col-sm-4 text-body-secondary">Lotes de venda (100)</dt>
+          <dd class="col-sm-8 fw-semibold">{{ valuation.lots }}</dd>
+          <dt class="col-sm-4 text-body-secondary">Quantidade vendida</dt>
+          <dd class="col-sm-8">{{ valuation.shares }} acoes</dd>
+          <dt class="col-sm-4 text-body-secondary">Quantidade comprada</dt>
+          <dd class="col-sm-8">{{ valuation.shares_buy|default:valuation.shares }} acoes</dd>
+          <dt class="col-sm-4 text-body-secondary">Proporcao long/short</dt>
+          <dd class="col-sm-8">{{ valuation.proporcao_label }}</dd>
+          {% if valuation.capital_informado_label %}
+            <dt class="col-sm-4 text-body-secondary">Capital informado</dt>
+            <dd class="col-sm-8">{{ valuation.capital_informado_label }}</dd>
+          {% endif %}
+          <dt class="col-sm-4 text-body-secondary">Capital utilizado</dt>
+          <dd class="col-sm-8">{{ valuation.capital_label }}</dd>
+          <dt class="col-sm-4 text-body-secondary">Venda (recebe)</dt>
+          <dd class="col-sm-8">{{ valuation.sell_label }}</dd>
+          <dt class="col-sm-4 text-body-secondary">Compra (paga)</dt>
+          <dd class="col-sm-8">{{ valuation.buy_label }}</dd>
+          <dt class="col-sm-4 text-body-secondary">Saldo</dt>
+          <dd class="col-sm-8">
+            {{ valuation.net_label }} ({{ valuation.net_direction }})
+          </dd>
+          <dt class="col-sm-4 text-body-secondary">Valor minimo recomendado</dt>
+          <dd class="col-sm-8">{{ valuation.minimum_label }}</dd>
+        </dl>
+        <p class="small text-body-secondary mb-0">{{ valuation.description }}</p>
+      </div>
+    {% endif %}
   </div>
 </div>
 {% endblock %}

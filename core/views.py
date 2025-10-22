@@ -1,4 +1,6 @@
-from __future__ import annotations
+﻿from __future__ import annotations
+
+from decimal import Decimal, InvalidOperation
 
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
@@ -8,7 +10,10 @@ from django.utils.formats import number_format
 
 from acoes.models import Asset
 from cotacoes.models import QuoteLive
-from longshort.services.metrics import compute_pair_window_metrics
+from longshort.services.metrics import (
+    compute_pair_window_metrics,
+    calcular_proporcao_long_short,
+)
 from longshort.services.quotes import fetch_latest_price
 from pairs.constants import DEFAULT_BASE_WINDOW, DEFAULT_WINDOWS
 from pairs.forms import UserMetricsConfigForm
@@ -58,6 +63,28 @@ def operacoes(request):
 
     def _normalize_ticker(value: str | None) -> str:
         return (value or "").strip().upper()
+
+    def _parse_decimal(raw: str | None) -> Decimal:
+        if raw is None:
+            raise InvalidOperation
+        text = str(raw).strip()
+        if not text:
+            raise InvalidOperation
+        text = text.replace("R$", "").replace("r$", "").replace(" ", "")
+        if "," in text and "." in text:
+            text = text.replace(".", "")
+            text = text.replace(",", ".")
+        elif "," in text:
+            text = text.replace(",", ".")
+        return Decimal(text)
+
+    def _format_money(value: Decimal | float | None) -> str | None:
+        if value is None:
+            return None
+        return f"R$ {number_format(value, 2)}"
+
+    def _format_decimal_input(value: Decimal) -> str:
+        return format(value.quantize(Decimal("0.01")), "f")
 
     def _get_asset(ticker: str) -> Asset | None:
         if not ticker:
@@ -215,6 +242,163 @@ def operacoes(request):
         "from_analysis": source == "analysis",
     }
 
+    def _fmt_metric(value: float | int | None, digits: int = 2, fallback: str = "--") -> str:
+        if value is None:
+            return fallback
+        try:
+            return f"{float(value):.{digits}f}"
+        except (TypeError, ValueError):
+            return fallback
+
+    pair_metrics_display: list[dict[str, str]] = []
+    if isinstance(metrics, dict) and metrics:
+        pair_metrics_display = [
+            {"label": "Z-score", "value": _fmt_metric(metrics.get("zscore"), 2)},
+            {"label": "Half-life", "value": _fmt_metric(metrics.get("half_life"), 2)},
+            {"label": "ADF p-valor", "value": _fmt_metric(metrics.get("adf_pvalue"), 4)},
+            {"label": "Beta", "value": _fmt_metric(metrics.get("beta"), 4)},
+            {"label": "Correlacao 30", "value": _fmt_metric(metrics.get("corr30"), 4)},
+            {"label": "Correlacao 60", "value": _fmt_metric(metrics.get("corr60"), 4)},
+            {
+                "label": "Amostra",
+                "value": number_format(metrics.get("n_samples"), 0) if metrics.get("n_samples") is not None else "--",
+            },
+        ]
+
+    summary["pair_metrics_payload"] = metrics if isinstance(metrics, dict) else None
+    summary["pair_metrics_display"] = pair_metrics_display
+
+    capital_param = request.GET.get("valor") or request.GET.get("capital")
+    valuation: dict[str, object] = {
+        "input_raw": capital_param or "",
+        "input_display": capital_param or "",
+        "error": None,
+        "has_result": False,
+        "lot_size": 100,
+        "suggested_value": None,
+        "suggested_label": None,
+        "input_adjusted": False,
+        "input_adjusted_message": "",
+    }
+
+    sell_price = summary["sell"]["price"]
+    buy_price = summary["buy"]["price"]
+
+    lot_size_dec = Decimal(valuation["lot_size"])
+    suggested_capital: Decimal | None = None
+    sell_price_dec: Decimal | None = None
+    buy_price_dec: Decimal | None = None
+    if sell_price is not None and buy_price is not None:
+        sell_price_dec = Decimal(str(sell_price))
+        buy_price_dec = Decimal(str(buy_price))
+        suggested_capital = max(sell_price_dec, buy_price_dec) * lot_size_dec
+        valuation["suggested_value"] = suggested_capital
+        valuation["suggested_label"] = _format_money(suggested_capital)
+        if not capital_param:
+            valuation["input_display"] = _format_decimal_input(suggested_capital)
+    elif not capital_param:
+        valuation["input_display"] = ""
+
+    capital_informado: Decimal | None = None
+    capital_utilizado: Decimal | None = None
+
+    if capital_param:
+        try:
+            capital_informado = _parse_decimal(capital_param)
+        except InvalidOperation:
+            valuation["error"] = "Informe um valor numerico valido."
+        else:
+            if capital_informado <= 0:
+                valuation["error"] = "Informe um valor maior que zero."
+            else:
+                capital_utilizado = capital_informado
+    elif suggested_capital is not None:
+        capital_utilizado = suggested_capital
+
+    if (
+        valuation["error"] is None
+        and capital_utilizado is not None
+        and suggested_capital is not None
+        and capital_utilizado < suggested_capital
+    ):
+        valuation["input_adjusted"] = True
+        valuation["input_adjusted_message"] = (
+            f"Valor informado ajustado para o minimo recomendado ({valuation['suggested_label']})."
+        )
+        capital_utilizado = suggested_capital
+
+    if valuation["error"] is None and capital_utilizado is not None:
+        valuation["input_display"] = _format_decimal_input(capital_utilizado)
+
+    if (
+        valuation["error"] is None
+        and capital_utilizado is not None
+        and (sell_price_dec is None or buy_price_dec is None)
+    ):
+        valuation["error"] = "Cotacoes indisponiveis para calcular os lotes."
+
+    result = None
+    if (
+        valuation["error"] is None
+        and capital_utilizado is not None
+        and sell_price_dec is not None
+        and buy_price_dec is not None
+    ):
+        result = calcular_proporcao_long_short(
+            preco_short=float(sell_price_dec),
+            preco_long=float(buy_price_dec),
+            limite_venda=float(capital_utilizado),
+            lote=int(valuation["lot_size"]),
+            ticker_short=sell_info["ticker"],
+            ticker_long=buy_info["ticker"],
+            nome_short=sell_info["name"],
+            nome_long=buy_info["name"],
+            capital_informado=float(capital_informado) if capital_informado is not None else None,
+        )
+        if result is None:
+            valuation["error"] = "Valor insuficiente para um lote de 100 acoes na ponta vendida."
+        else:
+            payload = result.to_payload()
+            valuation.update(
+                {
+                    "has_result": True,
+                    "result": result,
+                    "lots": result.lotes_vendidos,
+                    "shares": result.quantidade_vendida,
+                    "shares_buy": result.quantidade_comprada,
+                    "capital_value": result.capital_utilizado,
+                    "capital_label": _format_money(result.capital_utilizado),
+                    "capital_informado_label": _format_money(result.capital_informado)
+                    if result.capital_informado is not None
+                    else None,
+                    "lot_notional_label": _format_money(result.preco_short * Decimal(result.lote)),
+                    "sell_amount": result.valor_vendido,
+                    "sell_label": _format_money(result.valor_vendido),
+                    "buy_amount": result.valor_comprado,
+                    "buy_label": _format_money(result.valor_comprado),
+                    "net_amount": result.saldo,
+                    "net_label": _format_money(abs(result.saldo)),
+                    "net_direction": "recebe" if result.saldo >= 0 else "paga",
+                    "minimum_label": _format_money(result.valor_minimo_para_operar),
+                    "proporcao_label": f"{result.proporcao:.4f}",
+                    "description": result.resumo,
+                    "result_payload": payload,
+                }
+            )
+            valuation["input_display"] = _format_decimal_input(result.capital_utilizado)
+            if (
+                result.capital_informado is not None
+                and result.capital_informado != result.capital_utilizado
+            ):
+                valuation["input_adjusted"] = True
+                valuation["input_adjusted_message"] = (
+                    f"Valor informado { _format_money(result.capital_informado) } "
+                    f"ajustado para { _format_money(result.capital_utilizado) }."
+                )
+            summary["trade_plan_description"] = result.resumo
+            summary["trade_plan_metrics"] = payload
+            summary["trade_plan"] = result
+
     context = {
         "current": "operacoes",
         "title": "Operacoes",
@@ -229,6 +413,7 @@ def operacoes(request):
         "pair_obj": pair_obj,
         "prefilled": bool(initial_left and initial_right),
         "summary": summary,
+        "valuation": valuation,
     }
     return render(request, "core/operacoes.html", context)
 
@@ -324,3 +509,4 @@ def config(request):
             "metrics_help": metrics_help,
         },
     )
+
