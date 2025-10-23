@@ -86,6 +86,13 @@ def operacoes(request):
     def _format_decimal_input(value: Decimal) -> str:
         return format(value.quantize(Decimal("0.01")), "f")
 
+    def _compose_asset_label(ticker: str | None, name: str | None) -> str:
+        ticker_clean = (ticker or "").strip().upper()
+        name_clean = (name or "").strip()
+        if ticker_clean and name_clean:
+            return f"{ticker_clean} ({name_clean})"
+        return ticker_clean or name_clean or "--"
+
     def _get_asset(ticker: str) -> Asset | None:
         if not ticker:
             return None
@@ -268,13 +275,29 @@ def operacoes(request):
     summary["pair_metrics_payload"] = metrics if isinstance(metrics, dict) else None
     summary["pair_metrics_display"] = pair_metrics_display
 
+    lot_multiplier_param = request.GET.get("lotes") or request.GET.get("multiplicador")
+    lot_multiplier = 1
+    if lot_multiplier_param is not None:
+        try:
+            lot_multiplier = int(str(lot_multiplier_param).strip())
+        except (TypeError, ValueError):
+            lot_multiplier = 1
+        else:
+            if lot_multiplier < 1:
+                lot_multiplier = 1
+            elif lot_multiplier > 999:
+                lot_multiplier = 999
+
     capital_param = request.GET.get("valor") or request.GET.get("capital")
+    lot_size_base = 100
     valuation: dict[str, object] = {
         "input_raw": capital_param or "",
         "input_display": capital_param or "",
         "error": None,
         "has_result": False,
-        "lot_size": 100,
+        "lot_size": lot_size_base,
+        "lot_multiplier": lot_multiplier,
+        "target_shares": lot_size_base * lot_multiplier,
         "suggested_value": None,
         "suggested_label": None,
         "input_adjusted": False,
@@ -284,6 +307,7 @@ def operacoes(request):
     sell_price = summary["sell"]["price"]
     buy_price = summary["buy"]["price"]
 
+    lot_multiplier_dec = Decimal(lot_multiplier)
     lot_size_dec = Decimal(valuation["lot_size"])
     suggested_capital: Decimal | None = None
     sell_price_dec: Decimal | None = None
@@ -291,7 +315,7 @@ def operacoes(request):
     if sell_price is not None and buy_price is not None:
         sell_price_dec = Decimal(str(sell_price))
         buy_price_dec = Decimal(str(buy_price))
-        suggested_capital = max(sell_price_dec, buy_price_dec) * lot_size_dec
+        suggested_capital = max(sell_price_dec, buy_price_dec) * lot_size_dec * lot_multiplier_dec
         valuation["suggested_value"] = suggested_capital
         valuation["suggested_label"] = _format_money(suggested_capital)
         if not capital_param:
@@ -356,9 +380,22 @@ def operacoes(request):
             capital_informado=float(capital_informado) if capital_informado is not None else None,
         )
         if result is None:
-            valuation["error"] = "Valor insuficiente para um lote de 100 acoes na ponta vendida."
+            valuation["error"] = (
+                f"Valor insuficiente para um lote de {valuation['lot_size']} acoes na ponta vendida."
+            )
         else:
             payload = result.to_payload()
+            minimum_total = result.valor_minimo_para_operar * lot_multiplier_dec
+            target_shares_total = result.lote * lot_multiplier
+            lots_result = result.lotes_vendidos
+            description = result.resumo
+            if lots_result > 1:
+                description = (
+                    f"{description} Plano calculado com {lots_result} lotes "
+                    f"({result.quantidade_vendida} acoes) na ponta vendida."
+                )
+            sell_lot_notional = result.preco_short * Decimal(result.lote)
+            buy_lot_notional = result.preco_long * Decimal(result.lote)
             valuation.update(
                 {
                     "has_result": True,
@@ -371,7 +408,8 @@ def operacoes(request):
                     "capital_informado_label": _format_money(result.capital_informado)
                     if result.capital_informado is not None
                     else None,
-                    "lot_notional_label": _format_money(result.preco_short * Decimal(result.lote)),
+                    "lot_notional_label": _format_money(sell_lot_notional),
+                    "sell_lot_notional_label": _format_money(sell_lot_notional),
                     "sell_amount": result.valor_vendido,
                     "sell_label": _format_money(result.valor_vendido),
                     "buy_amount": result.valor_comprado,
@@ -379,10 +417,17 @@ def operacoes(request):
                     "net_amount": result.saldo,
                     "net_label": _format_money(abs(result.saldo)),
                     "net_direction": "recebe" if result.saldo >= 0 else "paga",
-                    "minimum_label": _format_money(result.valor_minimo_para_operar),
+                    "minimum_label": _format_money(minimum_total),
                     "proporcao_label": f"{result.proporcao:.4f}",
-                    "description": result.resumo,
+                    "description": description,
                     "result_payload": payload,
+                    "target_shares": target_shares_total,
+                    "sell_unit_label": _format_money(result.preco_short),
+                    "sell_asset_label": _compose_asset_label(sell_info["ticker"], sell_info["name"]),
+                    "buy_asset_label": _compose_asset_label(buy_info["ticker"], buy_info["name"]),
+                    "buy_unit_label": _format_money(result.preco_long),
+                    "buy_lot_notional_label": _format_money(buy_lot_notional),
+                    "buy_lots": result.lotes_comprados,
                 }
             )
             valuation["input_display"] = _format_decimal_input(result.capital_utilizado)
@@ -395,7 +440,7 @@ def operacoes(request):
                     f"Valor informado { _format_money(result.capital_informado) } "
                     f"ajustado para { _format_money(result.capital_utilizado) }."
                 )
-            summary["trade_plan_description"] = result.resumo
+            summary["trade_plan_description"] = description
             summary["trade_plan_metrics"] = payload
             summary["trade_plan"] = result
 

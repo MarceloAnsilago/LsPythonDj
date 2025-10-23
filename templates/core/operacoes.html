@@ -54,16 +54,6 @@
                 Escolha a janela sugerida pela analise ou ajuste manualmente conforme sua estrategia.
               </div>
             </div>
-            <div class="col-12">
-              <div class="d-flex gap-2">
-                <button type="button" class="btn btn-primary" disabled title="Fluxo de execucao sera habilitado na proxima etapa">
-                  Salvar e iniciar (em breve)
-                </button>
-                <button type="button" class="btn btn-outline-secondary" disabled>
-                  Apenas registrar (em breve)
-                </button>
-              </div>
-            </div>
           </form>
         </div>
       </div>
@@ -72,38 +62,8 @@
     <div class="col-lg-4">
       <div class="card shadow-sm rounded-4 h-100">
         <div class="card-body d-flex flex-column gap-3">
-          <div>
-            <h2 class="h6 fw-semibold mb-3">Resumo</h2>
-            <dl class="row mb-0 small">
-              <dt class="col-5 text-body-secondary">Origem</dt>
-              <dd class="col-7">
-                {% if initial.source == "analysis" %}
-                  Analise
-                {% else %}
-                  Manual
-                {% endif %}
-              </dd>
-              <dt class="col-5 text-body-secondary">Par</dt>
-              <dd class="col-7">
-                {% if pair_obj %}
-                  {{ pair_obj.left.ticker }} x {{ pair_obj.right.ticker }}
-                  <span class="text-body-tertiary d-block">ID #{{ pair_obj.pk }}</span>
-                {% elif initial.left or initial.right %}
-                  {{ initial.left|default:"--" }} x {{ initial.right|default:"--" }}
-                {% else %}
-                  --
-                {% endif %}
-              </dd>
-              <dt class="col-5 text-body-secondary">Janela</dt>
-              <dd class="col-7">{{ initial.window }} dias</dd>
-              {% if summary.zscore_label %}
-                <dt class="col-5 text-body-secondary">Z-score</dt>
-                <dd class="col-7">{{ summary.zscore_label }}</dd>
-              {% endif %}
-            </dl>
-          </div>
           {% if summary.note %}
-            <p class="small text-body-secondary mb-0">{{ summary.note }}</p>
+            <div class="small text-body-secondary">{{ summary.note }}</div>
           {% endif %}
           <div class="d-grid gap-2">
             <div class="border rounded-3 p-3">
@@ -163,13 +123,15 @@
               </div>
             </div>
             {% if summary.pair_metrics_display %}
-              <div class="border rounded-3 p-3 bg-body-tertiary">
-                <dl class="row small mb-0">
-                  {% for metric in summary.pair_metrics_display %}
-                    <dt class="col-6 text-body-secondary">{{ metric.label }}</dt>
-                    <dd class="col-6 text-end">{{ metric.value }}</dd>
-                  {% endfor %}
-                </dl>
+            <div class="border rounded-3 p-3 bg-body-tertiary">
+              <dl class="row small mb-0">
+                <dt class="col-6 text-body-secondary">Janela</dt>
+                <dd class="col-6 text-end">{{ initial.window }} dias</dd>
+                {% for metric in summary.pair_metrics_display %}
+                  <dt class="col-6 text-body-secondary">{{ metric.label }}</dt>
+                  <dd class="col-6 text-end">{{ metric.value }}</dd>
+                {% endfor %}
+              </dl>
               </div>
             {% elif summary.pair_metrics_payload is not None %}
               <div class="border rounded-3 p-3 bg-body-tertiary small text-body-secondary">
@@ -189,13 +151,13 @@
 <div class="card shadow-sm rounded-4 soft-card mt-3">
   <div class="card-body">
     <h2 class="h6 fw-semibold mb-3">Valores</h2>
-    <form method="get" class="row gy-3 gx-2">
+    <form method="get" class="row gy-3 gx-3">
       {% for key, value in request.GET.items %}
-        {% if key != "valor" and key != "capital" %}
+        {% if key != "valor" and key != "capital" and key != "lotes" and key != "multiplicador" %}
           <input type="hidden" name="{{ key }}" value="{{ value }}">
         {% endif %}
       {% endfor %}
-      <div class="col-md-6">
+      <div class="col-12 col-md-6 col-lg-5">
         <label for="valorOperacao" class="form-label small text-body-secondary">Valor disponivel</label>
         <div class="input-group input-group-sm">
           <span class="input-group-text">R$</span>
@@ -219,44 +181,116 @@
           <div class="form-text text-warning">{{ valuation.input_adjusted_message }}</div>
         {% endif %}
       </div>
-      <div class="col-md-3 d-flex align-items-end">
-        <button type="submit" class="btn btn-outline-primary btn-sm">Calcular</button>
+      <div class="col-12 col-md-4 col-lg-3">
+        <label for="lotesOperacao" class="form-label small text-body-secondary">
+          Multiplicador de lotes
+        </label>
+        <div class="input-group input-group-sm">
+          <input type="number"
+                 class="form-control"
+                 id="lotesOperacao"
+                 name="lotes"
+                 min="1"
+                 max="999"
+                 step="1"
+                 value="{{ valuation.lot_multiplier }}">
+          <span class="input-group-text">&times; {{ valuation.lot_size }}</span>
+        </div>
+        <div class="form-text text-body-secondary">
+          Total alvo: {{ valuation.target_shares }} acoes
+        </div>
+      </div>
+      <div class="col-12 col-md-2 col-lg-2 d-flex align-items-end">
+        <div class="d-grid w-100">
+          <button type="submit" class="btn btn-outline-primary btn-sm">
+            Calcular
+          </button>
+        </div>
       </div>
     </form>
 
     {% if valuation.error %}
       <div class="alert alert-warning small mt-3 mb-0">{{ valuation.error }}</div>
     {% elif valuation.has_result %}
-      <div class="mt-3">
-        <dl class="row small mb-2">
-          <dt class="col-sm-4 text-body-secondary">Lotes de venda (100)</dt>
-          <dd class="col-sm-8 fw-semibold">{{ valuation.lots }}</dd>
-          <dt class="col-sm-4 text-body-secondary">Quantidade vendida</dt>
-          <dd class="col-sm-8">{{ valuation.shares }} acoes</dd>
-          <dt class="col-sm-4 text-body-secondary">Quantidade comprada</dt>
-          <dd class="col-sm-8">{{ valuation.shares_buy|default:valuation.shares }} acoes</dd>
-          <dt class="col-sm-4 text-body-secondary">Proporcao long/short</dt>
-          <dd class="col-sm-8">{{ valuation.proporcao_label }}</dd>
-          {% if valuation.capital_informado_label %}
-            <dt class="col-sm-4 text-body-secondary">Capital informado</dt>
-            <dd class="col-sm-8">{{ valuation.capital_informado_label }}</dd>
-          {% endif %}
-          <dt class="col-sm-4 text-body-secondary">Capital utilizado</dt>
-          <dd class="col-sm-8">{{ valuation.capital_label }}</dd>
-          <dt class="col-sm-4 text-body-secondary">Venda (recebe)</dt>
-          <dd class="col-sm-8">{{ valuation.sell_label }}</dd>
-          <dt class="col-sm-4 text-body-secondary">Compra (paga)</dt>
-          <dd class="col-sm-8">{{ valuation.buy_label }}</dd>
-          <dt class="col-sm-4 text-body-secondary">Saldo</dt>
-          <dd class="col-sm-8">
-            {{ valuation.net_label }} ({{ valuation.net_direction }})
-          </dd>
-          <dt class="col-sm-4 text-body-secondary">Valor minimo recomendado</dt>
-          <dd class="col-sm-8">{{ valuation.minimum_label }}</dd>
-        </dl>
-        <p class="small text-body-secondary mb-0">{{ valuation.description }}</p>
+      <div class="row g-3 mt-3">
+        <div class="col-12 col-lg-4">
+          <div class="card shadow-sm h-100 border-0 bg-body-tertiary">
+            <div class="card-body small">
+              <h3 class="h6 fw-semibold text-body-secondary mb-3">Venda (short)</h3>
+              <dl class="row mb-0 gy-1">
+                <dt class="col-6 text-body-tertiary">Lotes ({{ valuation.lot_size }})</dt>
+                <dd class="col-6 fw-semibold text-body-emphasis">{{ valuation.lots }}</dd>
+                <dt class="col-6 text-body-tertiary">Ativo</dt>
+                <dd class="col-6">{{ valuation.sell_asset_label }}</dd>
+                <dt class="col-6 text-body-tertiary">Multiplicador</dt>
+                <dd class="col-6">{{ valuation.lot_multiplier }} &times; {{ valuation.lot_size }} ({{ valuation.target_shares }} acoes)</dd>
+                <dt class="col-6 text-body-tertiary">Quantidade</dt>
+                <dd class="col-6">{{ valuation.shares }} acoes</dd>
+                <dt class="col-6 text-body-tertiary">Preco unitario</dt>
+                <dd class="col-6">{{ valuation.sell_unit_label }}</dd>
+                <dt class="col-6 text-body-tertiary">Valor por lote</dt>
+                <dd class="col-6">{{ valuation.sell_lot_notional_label }}</dd>
+                <dt class="col-6 text-body-tertiary">Total vendido</dt>
+                <dd class="col-6">{{ valuation.sell_label }}</dd>
+              </dl>
+            </div>
+          </div>
+        </div>
+        <div class="col-12 col-lg-4">
+          <div class="card shadow-sm h-100 border-0 bg-body-tertiary">
+            <div class="card-body small">
+              <h3 class="h6 fw-semibold text-body-secondary mb-3">Compra (long)</h3>
+              <dl class="row mb-0 gy-1">
+                <dt class="col-6 text-body-tertiary">Lotes ({{ valuation.lot_size }})</dt>
+                <dd class="col-6 fw-semibold text-body-emphasis">{{ valuation.buy_lots }}</dd>
+                <dt class="col-6 text-body-tertiary">Ativo</dt>
+                <dd class="col-6">{{ valuation.buy_asset_label }}</dd>
+                <dt class="col-6 text-body-tertiary">Quantidade</dt>
+                <dd class="col-6">{{ valuation.shares_buy|default:valuation.shares }} acoes</dd>
+                <dt class="col-6 text-body-tertiary">Preco unitario</dt>
+                <dd class="col-6">{{ valuation.buy_unit_label }}</dd>
+                <dt class="col-6 text-body-tertiary">Valor por lote</dt>
+                <dd class="col-6">{{ valuation.buy_lot_notional_label }}</dd>
+                <dt class="col-6 text-body-tertiary">Total comprado</dt>
+                <dd class="col-6">{{ valuation.buy_label }}</dd>
+              </dl>
+            </div>
+          </div>
+        </div>
+        <div class="col-12 col-lg-4">
+          <div class="card shadow-sm h-100 border-0 bg-body-tertiary">
+            <div class="card-body small d-flex flex-column">
+              <h3 class="h6 fw-semibold text-body-secondary mb-3">Resultados</h3>
+              <dl class="row mb-3 gy-1">
+                <dt class="col-6 text-body-tertiary">Proporcao long/short</dt>
+                <dd class="col-6">{{ valuation.proporcao_label }}</dd>
+                {% if valuation.capital_informado_label %}
+                  <dt class="col-6 text-body-tertiary">Capital informado</dt>
+                  <dd class="col-6">{{ valuation.capital_informado_label }}</dd>
+                {% endif %}
+                <dt class="col-6 text-body-tertiary">Capital utilizado</dt>
+                <dd class="col-6">{{ valuation.capital_label }}</dd>
+                <dt class="col-6 text-body-tertiary">Saldo</dt>
+                <dd class="col-6">{{ valuation.net_label }} ({{ valuation.net_direction }})</dd>
+                <dt class="col-6 text-body-tertiary">Valor minimo recomendado</dt>
+                <dd class="col-6">{{ valuation.minimum_label }}</dd>
+                <dt class="col-6 text-body-tertiary">Total alvo</dt>
+                <dd class="col-6">{{ valuation.target_shares }} acoes</dd>
+              </dl>
+              <p class="small text-body-secondary mb-0 mt-auto">{{ valuation.description }}</p>
+            </div>
+          </div>
+        </div>
       </div>
     {% endif %}
   </div>
+</div>
+<div class="d-grid d-md-flex justify-content-md-end mt-3">
+  <button type="button"
+          class="btn btn-primary"
+          disabled
+          title="Fluxo de execucao sera habilitado em breve">
+    Operar
+  </button>
 </div>
 {% endblock %}
