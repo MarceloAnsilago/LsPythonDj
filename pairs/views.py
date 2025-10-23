@@ -190,8 +190,8 @@ def hunt_start(request: HttpRequest) -> HttpResponse:
     job_id = uuid.uuid4().hex
     cache.set(f"hunt:{job_id}", {"state": "starting"}, CACHE_TTL)
 
-    def progress_cb(event: dict[str, Any]) -> None:
-        cache.set(f"hunt:{job_id}", {"state": "running", **event}, CACHE_TTL)
+    def progress_cb(ev: dict[str, Any]) -> None:
+        cache.set(f"hunt:{job_id}", {"state": "running", **ev}, CACHE_TTL)
 
     def runner() -> None:
         try:
@@ -331,8 +331,8 @@ def _resolve_context(request: HttpRequest, config: UserMetricsConfig | None) -> 
         except Pair.DoesNotExist:
             pair = Pair(left=left, right=right, base_window=base_default, chosen_window=window or base_default)
         if not window:
-            window = pair.chosen_window or pair.base_window or base_default
-        return pair, int(window), "ad-hoc"
+            window = p.chosen_window or p.base_window or 180
+        return p, window, "ad-hoc"
 
     if "op" in request.GET:
         raise Http404("Integracao com Operacoes estara disponivel na fase 2.")

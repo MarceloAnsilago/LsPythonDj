@@ -293,4 +293,291 @@
     Operar
   </button>
 </div>
+
+
+{% if valuation.has_result %}
+<div class="card shadow-sm rounded-4 soft-card mt-3">
+  <div class="card-body">
+    <h2 class="h6 fw-semibold mb-3">Boleta</h2>
+
+    <form id="ticketForm" class="row g-3" autocomplete="off" novalidate>
+      <!-- Contexto para o backend -->
+      <input type="hidden" name="pair_id" value="{{ initial.pair_id }}">
+      <input type="hidden" name="left" value="{{ initial.left }}">
+      <input type="hidden" name="right" value="{{ initial.right }}">
+      <input type="hidden" name="window" value="{{ initial.window }}">
+
+      <!-- Lados e quantidades (serão atualizados via JS) -->
+      <input type="hidden" name="sell_ticker" value="{{ summary.sell.ticker|default:initial.right }}">
+      <input type="hidden" name="buy_ticker"  value="{{ summary.buy.ticker|default:initial.left }}">
+      <input type="hidden" name="sell_qty"    id="sellQtyHidden" value="{{ valuation.shares }}">
+      <input type="hidden" name="buy_qty"     id="buyQtyHidden"  value="{{ valuation.shares_buy|default:valuation.shares }}">
+
+      <div class="col-12 col-xl-8">
+        <div class="row g-3">
+          <!-- Card Vender -->
+          <div class="col-12 col-md-6">
+            <div class="card h-100 border-0 bg-body-tertiary">
+              <div class="card-body small">
+                <div class="d-flex justify-content-between align-items-start">
+                  <div>
+                    <div class="text-uppercase small text-danger fw-semibold">Vender</div>
+                    <div class="fw-semibold">{{ summary.sell.ticker|default:"--" }}</div>
+                    {% if summary.sell.name %}
+                      <div class="text-body-secondary small">{{ summary.sell.name }}</div>
+                    {% endif %}
+                  </div>
+                  <div class="text-end">
+                    {% if summary.sell.price_label %}
+                      <div class="fw-semibold">{{ summary.sell.price_label }}</div>
+                      {% if summary.sell.source_label or summary.sell.updated_label %}
+                        <div class="text-body-tertiary small">
+                          {% if summary.sell.source_label %}{{ summary.sell.source_label }}{% endif %}
+                          {% if summary.sell.source_label and summary.sell.updated_label %}&bull; {% endif %}
+                          {% if summary.sell.updated_label %}{{ summary.sell.updated_label }}{% endif %}
+                        </div>
+                      {% endif %}
+                    {% else %}
+                      <div class="text-body-secondary small">Cotação indisponível</div>
+                    {% endif %}
+                  </div>
+                </div>
+
+                <hr class="my-2">
+
+                <dl class="row mb-0 gy-1">
+                  <dt class="col-7 text-body-tertiary">Lotes ({{ valuation.lot_size }})</dt>
+                  <dd class="col-5 text-end">
+                    <input
+                      type="number"
+                      id="sellLotsInput"
+                      class="form-control form-control-sm text-end"
+                      style="max-width: 120px; display: inline-block;"
+                      min="1" step="1"
+                      value="{{ valuation.lots }}"
+                      data-lot-size="{{ valuation.lot_size }}"
+                      data-unit="{{ valuation.sell_unit|default:0 }}">
+                  </dd>
+
+                  <dt class="col-7 text-body-tertiary">Qtd. ações</dt>
+                  <dd class="col-5 text-end" id="sellSharesText">{{ valuation.shares }} ações</dd>
+
+                  <dt class="col-7 text-body-tertiary">Preço unitário</dt>
+                  <dd class="col-5 text-end" id="sellUnitText">{{ valuation.sell_unit_label }}</dd>
+
+                  <dt class="col-7 text-body-tertiary">Total (venda)</dt>
+                  <dd class="col-5 text-end fw-semibold" id="sellTotalText">{{ valuation.sell_label }}</dd>
+                </dl>
+              </div>
+            </div>
+          </div>
+
+          <!-- Card Comprar -->
+          <div class="col-12 col-md-6">
+            <div class="card h-100 border-0 bg-body-tertiary">
+              <div class="card-body small">
+                <div class="d-flex justify-content-between align-items-start">
+                  <div>
+                    <div class="text-uppercase small text-success fw-semibold">Comprar</div>
+                    <div class="fw-semibold">{{ summary.buy.ticker|default:"--" }}</div>
+                    {% if summary.buy.name %}
+                      <div class="text-body-secondary small">{{ summary.buy.name }}</div>
+                    {% endif %}
+                  </div>
+                  <div class="text-end">
+                    {% if summary.buy.price_label %}
+                      <div class="fw-semibold">{{ summary.buy.price_label }}</div>
+                      {% if summary.buy.source_label or summary.buy.updated_label %}
+                        <div class="text-body-tertiary small">
+                          {% if summary.buy.source_label %}{{ summary.buy.source_label }}{% endif %}
+                          {% if summary.buy.source_label and summary.buy.updated_label %}&bull; {% endif %}
+                          {% if summary.buy.updated_label %}{{ summary.buy.updated_label }}{% endif %}
+                        </div>
+                      {% endif %}
+                    {% else %}
+                      <div class="text-body-secondary small">Cotação indisponível</div>
+                    {% endif %}
+                  </div>
+                </div>
+
+                <hr class="my-2">
+
+                <dl class="row mb-0 gy-1">
+                  <dt class="col-7 text-body-tertiary">Lotes ({{ valuation.lot_size }})</dt>
+                  <dd class="col-5 text-end">
+                    <input
+                      type="number"
+                      id="buyLotsInput"
+                      class="form-control form-control-sm text-end"
+                      style="max-width: 120px; display: inline-block;"
+                      min="1" step="1"
+                      value="{{ valuation.buy_lots }}"
+                      data-lot-size="{{ valuation.lot_size }}"
+                      data-unit="{{ valuation.buy_unit|default:0 }}">
+                  </dd>
+
+                  <dt class="col-7 text-body-tertiary">Qtd. ações</dt>
+                  <dd class="col-5 text-end" id="buySharesText">{{ valuation.shares_buy|default:valuation.shares }} ações</dd>
+
+                  <dt class="col-7 text-body-tertiary">Preço unitário</dt>
+                  <dd class="col-5 text-end" id="buyUnitText">{{ valuation.buy_unit_label }}</dd>
+
+                  <dt class="col-7 text-body-tertiary">Total (compra)</dt>
+                  <dd class="col-5 text-end fw-semibold" id="buyTotalText">{{ valuation.buy_label }}</dd>
+                </dl>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Estratificação + modo de execução -->
+      <div class="col-12 col-xl-4">
+        <div class="card h-100 border-0 bg-body-tertiary">
+          <div class="card-body d-flex flex-column">
+            <h3 class="h6 fw-semibold text-body-secondary mb-3">Estratificação</h3>
+
+            <dl class="row small gy-1 mb-3">
+              <dt class="col-7 text-body-tertiary">Recebe na venda</dt>
+              <dd class="col-5 text-end" id="receiveText">{{ valuation.sell_label }}</dd>
+
+              <dt class="col-7 text-body-tertiary">Paga na compra</dt>
+              <dd class="col-5 text-end" id="payText">{{ valuation.buy_label }}</dd>
+
+              <dt class="col-7 text-body-tertiary">Custos / Taxas</dt>
+              <dd class="col-5 text-end" id="feesText">—</dd>
+
+              <dt class="col-7 text-body-tertiary">Saldo</dt>
+              <dd class="col-5 text-end" id="netText">
+                {{ valuation.net_label }} <span class="text-body-tertiary">({{ valuation.net_direction }})</span>
+              </dd>
+            </dl>
+
+            <div class="form-check form-switch mb-2">
+              <input class="form-check-input" type="checkbox" id="realSwitch" name="is_real" value="1">
+              <label class="form-check-label small" for="realSwitch">Conta real (desmarcado = simulação)</label>
+            </div>
+
+            <button type="button"
+                    class="btn btn-success mt-auto"
+                    id="startTicketBtn"
+                    data-role="start-ticket">
+              Iniciar
+            </button>
+
+            <p class="small text-body-tertiary mb-0 mt-2">
+              Esta boleta é uma simulação visual. A execução real será conectada no próximo passo.
+            </p>
+          </div>
+        </div>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Script de atualização automática -->
+<script>
+(function () {
+  function fmtBRL(n) {
+    return n.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  }
+  // Converte "R$ 51,29" -> 51.29
+  function parseMoneyBR(text) {
+    if (!text) return NaN;
+    // remove tudo exceto dígitos, vírgula, ponto e sinal
+    let s = text.toString().trim().replace(/[^\d.,-]/g, '');
+    // remove separadores de milhar (pontos antes de milhares)
+    s = s.replace(/\.(?=\d{3}(?:\D|$))/g, '');
+    // vírgula decimal -> ponto
+    s = s.replace(',', '.');
+    const n = parseFloat(s);
+    return isNaN(n) ? NaN : n;
+  }
+  function clampInt(v, min) {
+    const n = Math.floor(Number(v || 0));
+    return isFinite(n) && n >= min ? n : min;
+  }
+
+  const sellLotsInput = document.getElementById('sellLotsInput');
+  const buyLotsInput  = document.getElementById('buyLotsInput');
+  if (!sellLotsInput || !buyLotsInput) return;
+
+  // elementos de saída — venda
+  const sellSharesText = document.getElementById('sellSharesText');
+  const sellUnitText   = document.getElementById('sellUnitText');
+  const sellTotalText  = document.getElementById('sellTotalText');
+
+  // elementos de saída — compra
+  const buySharesText  = document.getElementById('buySharesText');
+  const buyUnitText    = document.getElementById('buyUnitText');
+  const buyTotalText   = document.getElementById('buyTotalText');
+
+  // estratificação
+  const receiveText    = document.getElementById('receiveText');
+  const payText        = document.getElementById('payText');
+  const netText        = document.getElementById('netText');
+
+  // hidden (submit)
+  const sellQtyHidden  = document.getElementById('sellQtyHidden');
+  const buyQtyHidden   = document.getElementById('buyQtyHidden');
+
+  // base
+  const lotSizeAttr = Number(sellLotsInput.dataset.lotSize || 100);
+  let sellUnit = Number(sellLotsInput.dataset.unit);
+  let buyUnit  = Number(buyLotsInput.dataset.unit);
+
+  // fallback: se não veio numérico nos data-attributes, parseia do texto visível
+  if (!sellUnit) sellUnit = parseMoneyBR(sellUnitText?.textContent);
+  if (!buyUnit)  buyUnit  = parseMoneyBR(buyUnitText?.textContent);
+
+  // se ainda não conseguiu, zera para evitar NaN
+  if (!isFinite(sellUnit)) sellUnit = 0;
+  if (!isFinite(buyUnit))  buyUnit  = 0;
+
+  function recalc() {
+    const sellLots = clampInt(sellLotsInput.value, 1);
+    const buyLots  = clampInt(buyLotsInput.value, 1);
+
+    if (sellLotsInput.value != sellLots) sellLotsInput.value = sellLots;
+    if (buyLotsInput.value  != buyLots)  buyLotsInput.value  = buyLots;
+
+    const lotSize    = lotSizeAttr > 0 ? lotSizeAttr : 100;
+    const sellShares = sellLots * lotSize;
+    const buyShares  = buyLots  * lotSize;
+
+    const sellTotal  = sellShares * sellUnit;
+    const buyTotal   = buyShares  * buyUnit;
+
+    // atualiza textos
+    sellSharesText.textContent = `${sellShares} ações`;
+    buySharesText.textContent  = `${buyShares} ações`;
+    sellTotalText.textContent  = fmtBRL(sellTotal);
+    buyTotalText.textContent   = fmtBRL(buyTotal);
+
+    // estratificação
+    receiveText.textContent = fmtBRL(sellTotal);
+    payText.textContent     = fmtBRL(buyTotal);
+    const net    = sellTotal - buyTotal;
+    const dirLbl = net >= 0 ? 'recebe' : 'paga';
+    netText.innerHTML = `${fmtBRL(Math.abs(net))} <span class="text-body-tertiary">(${dirLbl})</span>`;
+
+    // hidden para submit
+    if (sellQtyHidden) sellQtyHidden.value = sellShares;
+    if (buyQtyHidden)  buyQtyHidden.value  = buyShares;
+  }
+
+  // recalcula em digitação e seta inicial
+  sellLotsInput.addEventListener('input', recalc);
+  buyLotsInput.addEventListener('input', recalc);
+  recalc();
+})();
+</script>
+
+{% endif %}
+
+
+
+
+
+
 {% endblock %}
