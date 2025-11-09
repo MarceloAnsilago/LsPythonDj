@@ -43,6 +43,7 @@ INSTALLED_APPS = [
     'core',
     'acoes',
     'cotacoes',
+    'operacoes',
 
     # Extras
     'django_htmx',

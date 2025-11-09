@@ -1,0 +1,244 @@
+{% extends "_base.html" %}
+{% block title %}Encerrar operacao - LongShortDjango{% endblock %}
+{% block content %}
+<div class="py-3">
+  <div class="d-flex justify-content-between align-items-center gap-2 mb-3">
+    <a href="{% url 'core:home' %}" class="btn btn-link btn-sm px-0 text-decoration-none">
+      &larr; Voltar
+    </a>
+    <span class="badge {% if operation.is_real %}bg-success-subtle text-success{% else %}bg-secondary-subtle text-secondary{% endif %}">
+      {% if operation.is_real %}Conta real{% else %}Simulacao{% endif %}
+    </span>
+  </div>
+
+  <div class="card soft-card shadow-sm rounded-4 mb-3">
+    <div class="card-body d-flex flex-column gap-3">
+      <div class="d-flex justify-content-between align-items-start gap-3 flex-wrap">
+        <div>
+          <div class="text-body-secondary small mb-1">
+            Aberta em {{ operation_date_label }} &bull; Operada em {{ opened_label }} &bull; Janela {{ window }}d
+          </div>
+          <h1 class="h5 fw-semibold mb-1">
+            {{ operation.sell_asset.ticker }} / {{ operation.buy_asset.ticker }}
+          </h1>
+          <div class="text-body-secondary small">
+            Entrada {{ entry_zscore_label }} &rarr; Atual {{ current_zscore_label }} ({{ z_delta_label }})
+          </div>
+        </div>
+        <div class="text-end">
+          <div class="fw-semibold">{{ capital_label }}</div>
+          <div class="text-body-secondary small">Capital alocado</div>
+        </div>
+      </div>
+
+      <div class="row row-cols-1 row-cols-md-3 g-3">
+        <div class="col">
+          <div class="border rounded-3 p-3 h-100">
+            <div class="text-uppercase text-body-tertiary fw-semibold small mb-2">Entrada</div>
+            <div class="display-6 fs-3 mb-1">{{ entry_zscore_label }}</div>
+            <div class="text-body-secondary small">Z-score</div>
+          </div>
+        </div>
+        <div class="col">
+          <div class="border rounded-3 p-3 h-100">
+            <div class="text-uppercase text-body-tertiary fw-semibold small mb-2">Atual</div>
+            <div class="display-6 fs-3 mb-1">{{ current_zscore_label }}</div>
+            <div class="text-body-secondary small">Z-score agora</div>
+          </div>
+        </div>
+        <div class="col">
+          <div class="border rounded-3 p-3 h-100">
+            <div class="text-uppercase text-body-tertiary fw-semibold small mb-2">Saldo</div>
+            <div class="fw-semibold mb-1">{{ net_label }}</div>
+            <div class="text-body-secondary small">{{ net_direction }} para recomprar a ponta short.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="row g-3">
+    <div class="col-lg-6">
+      <div class="card soft-card shadow-sm rounded-4 h-100">
+        <div class="card-body">
+          <h2 class="h6 fw-semibold mb-3">Metricas na entrada</h2>
+          <dl class="row mb-0 gy-1 small">
+            {% for metric in entry_metrics %}
+              <dt class="col-6 text-body-tertiary">{{ metric.label }}</dt>
+              <dd class="col-6 text-end">{{ metric.value }}</dd>
+            {% endfor %}
+            {% if entry_metrics|length == 0 %}
+              <dt class="col-12 text-body-secondary">Sem metricas registradas.</dt>
+            {% endif %}
+          </dl>
+        </div>
+      </div>
+    </div>
+    <div class="col-lg-6">
+      <div class="card soft-card shadow-sm rounded-4 h-100">
+        <div class="card-body">
+          <h2 class="h6 fw-semibold mb-3">Metricas atuais</h2>
+          <dl class="row mb-0 gy-1 small">
+            {% for metric in current_metrics %}
+              <dt class="col-6 text-body-tertiary">{{ metric.label }}</dt>
+              <dd class="col-6 text-end">{{ metric.value }}</dd>
+            {% endfor %}
+            {% if current_metrics|length == 0 %}
+              <dt class="col-12 text-body-secondary">Ainda nao foi possivel recalcular as metricas.</dt>
+            {% endif %}
+          </dl>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card soft-card shadow-sm rounded-4 mt-3">
+    <div class="card-body">
+      <h2 class="h6 fw-semibold mb-3">Boleta original</h2>
+      <div class="table-responsive">
+        <table class="table table-sm align-middle mb-0">
+          <thead>
+            <tr class="text-body-tertiary">
+              <th scope="col">Ponta</th>
+              <th scope="col" class="text-end">Quantidade</th>
+              <th scope="col" class="text-end">Preco</th>
+              <th scope="col" class="text-end">Valor</th>
+            </tr>
+          </thead>
+          <tbody class="small">
+            <tr>
+              <td class="fw-semibold text-danger">Vender {{ trade_summary.sell.ticker }}</td>
+              <td class="text-end">{{ trade_summary.sell.quantity }}</td>
+              <td class="text-end">{{ trade_summary.sell.price_label }}</td>
+              <td class="text-end">{{ trade_summary.sell.value_label }}</td>
+            </tr>
+            <tr>
+              <td class="fw-semibold text-success">Comprar {{ trade_summary.buy.ticker }}</td>
+              <td class="text-end">{{ trade_summary.buy.quantity }}</td>
+              <td class="text-end">{{ trade_summary.buy.price_label }}</td>
+              <td class="text-end">{{ trade_summary.buy.value_label }}</td>
+            </tr>
+          </tbody>
+          <tfoot>
+            <tr class="small text-body-secondary">
+              <th scope="row">Capital</th>
+              <td></td>
+              <td></td>
+              <td class="text-end">{{ trade_summary.capital_label }}</td>
+            </tr>
+            <tr class="small text-body-secondary">
+              <th scope="row">Saldo</th>
+              <td></td>
+              <td></td>
+              <td class="text-end">{{ trade_summary.net_label }} ({{ net_direction }})</td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <div class="card border-0 shadow-sm rounded-4 mt-3 bg-body-tertiary">
+    <div class="card-body">
+      <h2 class="h6 fw-semibold mb-2">Fluxo de encerramento</h2>
+      <p class="text-body-secondary small mb-0">
+        Esta etapa ainda esta em desenvolvimento. Em breve voce podera registrar a recompra e encerrar a operacao por aqui.
+      </p>
+    </div>
+  </div>
+
+  <div class="card soft-card shadow-sm rounded-4 mt-3">
+    <div class="card-body">
+      <div class="d-flex justify-content-between align-items-start gap-3">
+        <div>
+          <h2 class="h6 fw-semibold mb-1">Z-score atual</h2>
+          <p class="text-body-secondary small mb-0">Serie dos ultimos valores do spread.</p>
+        </div>
+        <div class="text-end small text-body-secondary">
+          Atual: <strong>{{ current_zscore_label }}</strong>
+        </div>
+      </div>
+      {% if zscore_series_points %}
+        <div class="mt-3" style="min-height: 180px;">
+          <canvas id="zscoreChart" height="160" style="max-width: 100%;"></canvas>
+          {{ zscore_series_points|json_script:"zscore-series-data" }}
+        </div>
+      {% else %}
+        <div class="mt-3 text-body-secondary small">Serie de z-score indisponivel no momento.</div>
+      {% endif %}
+      <form method="post" class="mt-3 d-flex flex-column flex-sm-row align-items-stretch align-items-sm-center gap-2">
+        {% csrf_token %}
+        <input type="hidden" name="action" value="delete">
+        <button type="submit" class="btn btn-danger btn-sm w-100 w-sm-auto">Excluir operacao</button>
+        <p class="text-body-secondary small mb-0">
+          Remova pares inconsistentes para manter os cards do inicio sincronizados.
+        </p>
+      </form>
+    </div>
+  </div>
+  </div>
+  {% block extra_js %}
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <script>
+      ;(function () {
+        const dataset = document.getElementById('zscore-series-data');
+        const canvas = document.getElementById('zscoreChart');
+        if (!dataset || !canvas) {
+          return;
+        }
+        let series = [];
+        try {
+          series = JSON.parse(dataset.textContent || '[]');
+        } catch (error) {
+          console.error('Falha ao ler serie de zscore', error);
+          return;
+        }
+        if (!series.length) {
+          return;
+        }
+        const labels = series.map((point) => point.label);
+        const values = series.map((point) => point.value);
+        const ctx = canvas.getContext('2d');
+        if (!ctx) {
+          return;
+        }
+        new Chart(ctx, {
+          type: 'line',
+          data: {
+            labels,
+            datasets: [
+              {
+                label: 'Z-score',
+                data: values,
+                borderColor: '#0d6efd',
+                backgroundColor: 'rgba(13, 110, 253, 0.15)',
+                tension: 0.25,
+                fill: true,
+                pointRadius: 2,
+                pointHoverRadius: 4,
+              },
+            ],
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            scales: {
+              x: { display: true, title: { display: true, text: 'Periodo' } },
+              y: { display: true, title: { display: true, text: 'Z-score' } },
+            },
+            plugins: {
+              legend: { display: false },
+              tooltip: {
+                callbacks: {
+                  label(context) {
+                    return `Z: ${context.formattedValue}`;
+                  },
+                },
+              },
+            },
+          },
+        });
+      })();
+    </script>
+  {% endblock %}
+{% endblock %}

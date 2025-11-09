@@ -12,6 +12,19 @@
       Dados importados da analise. Reveja os campos antes de iniciar a operacao.
     </div>
   {% endif %}
+  {% if existing_operation_info %}
+    <div class="alert alert-warning d-flex flex-column gap-1 small mb-3">
+      <div><strong>Atencao:</strong> {{ existing_operation_info.message }}</div>
+      {% if existing_operation_info.opened_label %}
+        <div class="text-body-secondary">Operacao aberta em {{ existing_operation_info.opened_label }}.</div>
+      {% endif %}
+      <div>
+        <a class="alert-link" href="{{ existing_operation_info.url }}">
+          Ver detalhes da operacao em andamento ({{ existing_operation_info.pair_label }})
+        </a>
+      </div>
+    </div>
+  {% endif %}
 
   <div class="row g-3">
     <div class="col-lg-8">
@@ -301,15 +314,21 @@
     <h2 class="h6 fw-semibold mb-3">Boleta</h2>
 
     <form id="ticketForm" class="row g-3" autocomplete="off" novalidate>
+      {% csrf_token %}
       <!-- Contexto para o backend -->
       <input type="hidden" name="pair_id" value="{{ initial.pair_id }}">
       <input type="hidden" name="left" value="{{ initial.left }}">
       <input type="hidden" name="right" value="{{ initial.right }}">
       <input type="hidden" name="window" value="{{ initial.window }}">
+      <input type="hidden" name="lot_size" value="{{ valuation.lot_size }}">
+      <input type="hidden" name="lot_multiplier" id="lotMultiplierHidden" value="{{ valuation.lot_multiplier }}">
+      <input type="hidden" name="capital" id="capitalHidden" value="{{ valuation.capital_value|default:'' }}">
+      <input type="hidden" name="sell_price" value="{{ valuation.result_payload.preco_short|default:'' }}">
+      <input type="hidden" name="buy_price" value="{{ valuation.result_payload.preco_long|default:'' }}">
 
       <!-- Lados e quantidades (serão atualizados via JS) -->
-      <input type="hidden" name="sell_ticker" value="{{ summary.sell.ticker|default:initial.right }}">
-      <input type="hidden" name="buy_ticker"  value="{{ summary.buy.ticker|default:initial.left }}">
+      <input type="hidden" name="sell_ticker" value="{{ summary.sell.ticker|default:initial.left }}">
+      <input type="hidden" name="buy_ticker"  value="{{ summary.buy.ticker|default:initial.right }}">
       <input type="hidden" name="sell_qty"    id="sellQtyHidden" value="{{ valuation.shares }}">
       <input type="hidden" name="buy_qty"     id="buyQtyHidden"  value="{{ valuation.shares_buy|default:valuation.shares }}">
 
@@ -465,6 +484,8 @@
               Iniciar
             </button>
 
+            <div id="ticketFeedback" class="alert alert-danger small d-none mt-3" role="alert"></div>
+
             <p class="small text-body-tertiary mb-0 mt-2">
               Esta boleta é uma simulação visual. A execução real será conectada no próximo passo.
             </p>
@@ -520,6 +541,10 @@
   // hidden (submit)
   const sellQtyHidden  = document.getElementById('sellQtyHidden');
   const buyQtyHidden   = document.getElementById('buyQtyHidden');
+  const lotMultiplierHidden = document.getElementById('lotMultiplierHidden');
+  const capitalHidden = document.getElementById('capitalHidden');
+  const sellPriceHidden = document.querySelector('input[name="sell_price"]');
+  const buyPriceHidden  = document.querySelector('input[name="buy_price"]');
 
   // base
   const lotSizeAttr = Number(sellLotsInput.dataset.lotSize || 100);
@@ -564,12 +589,116 @@
     // hidden para submit
     if (sellQtyHidden) sellQtyHidden.value = sellShares;
     if (buyQtyHidden)  buyQtyHidden.value  = buyShares;
+    if (lotMultiplierHidden) lotMultiplierHidden.value = sellLots;
+    if (capitalHidden) capitalHidden.value = sellTotal.toFixed(2);
+    if (sellPriceHidden) sellPriceHidden.value = isFinite(sellUnit) ? sellUnit.toFixed(6) : '';
+    if (buyPriceHidden)  buyPriceHidden.value  = isFinite(buyUnit)  ? buyUnit.toFixed(6)  : '';
   }
 
   // recalcula em digitação e seta inicial
   sellLotsInput.addEventListener('input', recalc);
   buyLotsInput.addEventListener('input', recalc);
   recalc();
+})();
+</script>
+
+<script>
+(function () {
+  const form = document.getElementById('ticketForm');
+  const submitBtn = document.getElementById('startTicketBtn');
+  const feedbackBox = document.getElementById('ticketFeedback');
+  if (!form || !submitBtn) return;
+
+  const endpoint = form.getAttribute('action') || window.location.href;
+
+  function showFeedback(messages, isError = true) {
+    if (!feedbackBox) {
+      if (Array.isArray(messages)) {
+        alert(messages.join('\n'));
+      } else if (messages) {
+        alert(messages);
+      }
+      return;
+    }
+    const content = Array.isArray(messages) ? messages.join('<br>') : String(messages || '');
+    feedbackBox.innerHTML = content;
+    feedbackBox.classList.remove('d-none', 'alert-success', 'alert-danger');
+    feedbackBox.classList.add(isError ? 'alert-danger' : 'alert-success');
+  }
+
+  function hideFeedback() {
+    if (feedbackBox) {
+      feedbackBox.classList.add('d-none');
+      feedbackBox.textContent = '';
+    }
+  }
+
+  async function handleSubmit() {
+    const csrfInput = form.querySelector('input[name="csrfmiddlewaretoken"]');
+    const csrfToken = csrfInput ? csrfInput.value : '';
+    hideFeedback();
+
+    const originalText = submitBtn.textContent;
+    submitBtn.disabled = true;
+    submitBtn.textContent = 'Salvando...';
+
+    try {
+      const formData = new FormData(form);
+      const response = await fetch(endpoint, {
+        method: 'POST',
+        body: formData,
+        headers: {
+          'X-Requested-With': 'XMLHttpRequest',
+          'X-CSRFToken': csrfToken,
+        },
+        credentials: 'same-origin',
+      });
+
+      const data = await response.json().catch(() => null);
+
+      if (!response.ok) {
+        if (data && data.errors) {
+          showFeedback(data.errors);
+        } else if (data && data.detail) {
+          showFeedback(data.detail);
+        } else {
+          showFeedback('Nao foi possivel salvar a operacao agora. Tente novamente em instantes.');
+        }
+        return;
+      }
+
+      if (!data) {
+        showFeedback('Nao foi possivel interpretar a resposta do servidor.');
+        return;
+      }
+
+      if (!data.ok) {
+        showFeedback(data.errors || 'Nao foi possivel salvar a operacao.');
+        return;
+      }
+
+      if (feedbackBox) {
+        showFeedback('Operacao salva com sucesso! Redirecionando...', false);
+      }
+
+      if (data.redirect) {
+        window.location.href = data.redirect;
+      } else {
+        window.location.reload();
+      }
+    } catch (err) {
+      console.error(err);
+      showFeedback('Erro inesperado ao enviar a operacao.');
+    } finally {
+      submitBtn.disabled = false;
+      submitBtn.textContent = originalText;
+    }
+  }
+
+  submitBtn.addEventListener('click', function (ev) {
+    ev.preventDefault();
+    handleSubmit();
+  });
 })();
 </script>
 

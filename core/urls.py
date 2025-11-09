@@ -10,6 +10,11 @@ urlpatterns = [
     path("pares/", login_required(views.stub_page), {"page": "Pares"}, name="pares"),
     path("analise/", login_required(views.stub_page), {"page": "Analise"}, name="analise"),
     path("operacoes/", views.operacoes, name="operacoes"),
+    path(
+        "operacoes/<int:pk>/encerrar/",
+        login_required(views.operacao_encerrar),
+        name="operacao_encerrar",
+    ),
     path("encerradas/", login_required(views.stub_page), {"page": "Encerradas"}, name="encerradas"),
     path("config/", views.config, name="config"),
     path("faltantes/", views.faltantes, name="faltantes"),

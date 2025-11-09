@@ -1,10 +1,14 @@
 ﻿from __future__ import annotations
 
 from decimal import Decimal, InvalidOperation
+from types import SimpleNamespace
 
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
-from django.shortcuts import redirect, render
+from django.db.models import Prefetch
+from django.http import JsonResponse
+from django.shortcuts import get_object_or_404, redirect, render
+from django.urls import reverse
 from django.utils import timezone
 from django.utils.formats import number_format
 
@@ -13,20 +17,226 @@ from cotacoes.models import QuoteLive
 from longshort.services.metrics import (
     compute_pair_window_metrics,
     calcular_proporcao_long_short,
+    get_zscore_series,
 )
 from longshort.services.quotes import fetch_latest_price
 from pairs.constants import DEFAULT_BASE_WINDOW, DEFAULT_WINDOWS
 from pairs.forms import UserMetricsConfigForm
 from pairs.models import Pair, UserMetricsConfig
+from operacoes.models import Operation, OperationMetricSnapshot
 
 
 def home(request):
+    operations_cards: list[dict] = []
+
+    def _fmt_money(value: Decimal | float | None) -> str:
+        if value is None:
+            return "--"
+        try:
+            return f"R$ {number_format(value, 2)}"
+        except (TypeError, ValueError):
+            return "--"
+
+    def _fmt_int(value: int | Decimal | None) -> str:
+        if value is None:
+            return "--"
+        try:
+            return number_format(value, 0)
+        except (TypeError, ValueError):
+            return "--"
+
+    def _fmt_metric(value: float | Decimal | None, digits: int = 2) -> str:
+        if value is None:
+            return "--"
+        try:
+            return f"{float(value):.{digits}f}"
+        except (TypeError, ValueError):
+            return "--"
+
+    def _fmt_updated(dt_value):
+        if not dt_value:
+            return ""
+        try:
+            localized = timezone.localtime(dt_value)
+        except Exception:
+            localized = dt_value
+        return localized.strftime("%d/%m %H:%M")
+
+    money_quant = Decimal("0.01")
+
+    operations_qs = (
+        Operation.objects.select_related(
+            "pair",
+            "sell_asset__live_quote",
+            "buy_asset__live_quote",
+            "left_asset",
+            "right_asset",
+        )
+        .prefetch_related(
+            Prefetch(
+                "metric_snapshots",
+                queryset=OperationMetricSnapshot.objects.filter(snapshot_type=OperationMetricSnapshot.TYPE_OPEN)
+                .order_by("-reference_date"),
+                to_attr="entry_snapshots",
+            )
+        )
+        .filter(user=request.user, status=Operation.STATUS_OPEN)
+        .order_by("-opened_at")
+    )
+
+    for operation in operations_qs:
+        entry_snapshot = (operation.entry_snapshots[0] if getattr(operation, "entry_snapshots", None) else None)
+        entry_metrics_payload = {}
+        entry_reference_label = None
+        if entry_snapshot:
+            entry_reference_label = entry_snapshot.reference_date.strftime("%d/%m/%Y") if entry_snapshot.reference_date else None
+            if entry_snapshot.payload:
+                entry_metrics_payload = entry_snapshot.payload
+        elif isinstance(operation.pair_metrics, dict):
+            entry_metrics_payload = operation.pair_metrics
+
+        entry_zscore = entry_snapshot.zscore if entry_snapshot and entry_snapshot.zscore is not None else operation.entry_zscore
+
+        pair_ref = operation.pair or SimpleNamespace(
+            left=operation.left_asset,
+            right=operation.right_asset,
+        )
+
+        current_metrics_payload: dict[str, object] = {}
+        current_zscore = None
+        try:
+            metrics_now = compute_pair_window_metrics(pair=pair_ref, window=operation.window)
+        except Exception:
+            metrics_now = None
+        if isinstance(metrics_now, dict):
+            current_metrics_payload = metrics_now
+            raw_z = metrics_now.get("zscore")
+            if raw_z is not None:
+                try:
+                    current_zscore = float(raw_z)
+                except (TypeError, ValueError):
+                    current_zscore = None
+
+        def _build_live_price(asset):
+            quote = getattr(asset, "live_quote", None) if asset else None
+            if quote and quote.price is not None:
+                try:
+                    price = Decimal(str(quote.price))
+                except (TypeError, ValueError):
+                    price = None
+            else:
+                price = None
+            updated = getattr(quote, "updated_at", None) if quote else None
+            return price, updated
+
+        sell_live_price, sell_updated = _build_live_price(operation.sell_asset)
+        buy_live_price, buy_updated = _build_live_price(operation.buy_asset)
+
+        sell_qty_dec = Decimal(operation.sell_quantity)
+        buy_qty_dec = Decimal(operation.buy_quantity)
+        sell_pl = None
+        if sell_live_price is not None:
+            sell_pl = (operation.sell_price - sell_live_price) * sell_qty_dec
+        buy_pl = None
+        if buy_live_price is not None:
+            buy_pl = (buy_live_price - operation.buy_price) * buy_qty_dec
+
+        current_sell_total = None
+        current_buy_total = None
+        if sell_live_price is not None:
+            current_sell_total = (sell_live_price * sell_qty_dec).quantize(money_quant)
+        if buy_live_price is not None:
+            current_buy_total = (buy_live_price * buy_qty_dec).quantize(money_quant)
+
+        current_net_value = None
+        if current_sell_total is not None and current_buy_total is not None:
+            current_net_value = (current_sell_total - current_buy_total).quantize(money_quant)
+
+        pl_total = None
+        if sell_pl is not None and buy_pl is not None:
+            pl_total = (sell_pl + buy_pl).quantize(money_quant)
+
+        pnl_ready = sell_pl is not None and buy_pl is not None
+        pnl_positive = pnl_ready and pl_total is not None and pl_total > 0
+        pnl_negative = pnl_ready and pl_total is not None and pl_total < 0
+
+        latest_update = max(dt for dt in (sell_updated, buy_updated) if dt is not None) if sell_updated or buy_updated else None
+
+        z_delta_label = "--"
+        is_delta_positive = False
+        if entry_zscore is not None and current_zscore is not None:
+            try:
+                delta = float(current_zscore) - float(entry_zscore)
+                z_delta_label = f"{delta:+.2f}"
+                is_delta_positive = delta >= 0
+            except (TypeError, ValueError):
+                z_delta_label = "--"
+                is_delta_positive = False
+
+        entry_prices = {
+            "sell_qty_label": _fmt_int(operation.sell_quantity),
+            "buy_qty_label": _fmt_int(operation.buy_quantity),
+            "sell_price_label": _fmt_money(operation.sell_price),
+            "buy_price_label": _fmt_money(operation.buy_price),
+            "sell_total_label": _fmt_money(operation.sell_value),
+            "buy_total_label": _fmt_money(operation.buy_value),
+            "net_label": _fmt_money(operation.net_value),
+        }
+
+        def _yahoo_quote_url(asset: Asset | None) -> str:
+            if not asset:
+                return "#"
+            ticker_yf = (getattr(asset, "ticker_yf", None) or asset.ticker or "").upper().strip()
+            if ticker_yf and "." not in ticker_yf:
+                ticker_yf = f"{ticker_yf}.SA"
+            if not ticker_yf:
+                return "#"
+            return f"https://finance.yahoo.com/quote/{ticker_yf}"
+
+        current_prices = {
+            "updated_label": _fmt_updated(latest_update),
+            "sell_price_label": _fmt_money(sell_live_price),
+            "buy_price_label": _fmt_money(buy_live_price),
+            "sell_total_label": _fmt_money(current_sell_total),
+            "buy_total_label": _fmt_money(current_buy_total),
+            "sell_pl_label": _fmt_money(sell_pl),
+            "buy_pl_label": _fmt_money(buy_pl),
+            "net_label": _fmt_money(current_net_value),
+            "pl_total_label": _fmt_money(pl_total),
+        }
+
+        operations_cards.append(
+            {
+                "operation": operation,
+                "url": reverse("core:operacao_encerrar", args=[operation.pk]),
+                "operation_date_label": _fmt_updated(operation.opened_at),
+                "capital_label": _fmt_money(operation.capital_allocated),
+                "entry": {
+                    "zscore_label": _fmt_metric(entry_zscore),
+                    "prices": entry_prices,
+                },
+                "entry_reference_label": entry_reference_label,
+                "current": {
+                    "zscore_label": _fmt_metric(current_zscore),
+                    "prices": current_prices,
+                },
+                "is_delta_positive": is_delta_positive,
+                "z_delta_label": z_delta_label,
+                "pnl_ready": pnl_ready,
+                "pnl_positive": pnl_positive,
+                "pnl_negative": pnl_negative,
+                "sell_link": _yahoo_quote_url(operation.sell_asset),
+                "buy_link": _yahoo_quote_url(operation.buy_asset),
+            }
+        )
+
     return render(
         request,
         "core/home.html",
         {
             "current": "home",
             "title": "Inicio - Operacoes em andamento",
+            "operations_cards": operations_cards,
         },
     )
 
@@ -161,6 +371,229 @@ def operacoes(request):
                 info["error_label"] = "Yahoo nao retornou cotacao para este ticker."
 
         return info
+
+    def _handle_operation_post():
+        posted = request.POST
+        errors: list[str] = []
+
+        def respond_with_errors():
+            payload = {"ok": False, "errors": errors or ["Dados invalidos ou incompletos."]}
+            return JsonResponse(payload, status=400)
+
+        def parse_positive_decimal(field: str, label: str) -> Decimal | None:
+            raw = posted.get(field)
+            if not raw:
+                errors.append(f"{label} nao informado.")
+                return None
+            try:
+                value = _parse_decimal(raw)
+            except InvalidOperation:
+                errors.append(f"{label} invalido.")
+                return None
+            if value <= 0:
+                errors.append(f"{label} precisa ser maior que zero.")
+                return None
+            return value
+
+        def parse_positive_int(field: str, label: str) -> int | None:
+            raw = posted.get(field)
+            if not raw:
+                errors.append(f"{label} nao informado.")
+                return None
+            try:
+                value = int(str(raw).strip())
+            except (TypeError, ValueError):
+                errors.append(f"{label} invalido.")
+                return None
+            if value <= 0:
+                errors.append(f"{label} precisa ser maior que zero.")
+                return None
+            return value
+
+        left_ticker = _normalize_ticker(posted.get("left"))
+        right_ticker = _normalize_ticker(posted.get("right"))
+        sell_ticker = _normalize_ticker(posted.get("sell_ticker"))
+        buy_ticker = _normalize_ticker(posted.get("buy_ticker"))
+
+        if not left_ticker:
+            errors.append("Ativo esquerdo nao informado.")
+        if not right_ticker:
+            errors.append("Ativo direito nao informado.")
+        if not sell_ticker:
+            errors.append("Ativo vendido nao informado.")
+        if not buy_ticker:
+            errors.append("Ativo comprado nao informado.")
+
+        lot_size = 100
+        lot_size_raw = posted.get("lot_size")
+        if lot_size_raw:
+            try:
+                lot_size = int(str(lot_size_raw).strip())
+                if lot_size <= 0:
+                    errors.append("Tamanho do lote precisa ser maior que zero.")
+                    lot_size = 100
+            except (TypeError, ValueError):
+                errors.append("Tamanho do lote invalido.")
+
+        lot_multiplier = parse_positive_int("lot_multiplier", "Quantidade de lotes")
+        sell_qty = parse_positive_int("sell_qty", "Quantidade vendida")
+        buy_qty = parse_positive_int("buy_qty", "Quantidade comprada")
+        capital = parse_positive_decimal("capital", "Capital alocado")
+        sell_price = parse_positive_decimal("sell_price", "Preco de venda")
+        buy_price = parse_positive_decimal("buy_price", "Preco de compra")
+
+        if posted.get("window") is None:
+            window_value = default_window
+        else:
+            window_value = _safe_window(posted.get("window"))
+        source_value = (posted.get("source") or "").strip().lower()
+        if source_value not in {"analysis", "manual"}:
+            source_value = "analysis"
+        is_real = bool(posted.get("is_real"))
+
+        if errors:
+            return respond_with_errors()
+
+        if lot_multiplier is None:
+            lot_multiplier = 1
+
+        pair_obj: Pair | None = None
+        pair_pk_raw = posted.get("pair_id")
+        if pair_pk_raw:
+            try:
+                pair_pk = int(str(pair_pk_raw).strip())
+            except (TypeError, ValueError):
+                pair_pk = None
+            else:
+                pair_obj = (
+                    Pair.objects.select_related("left", "right")
+                    .filter(pk=pair_pk)
+                    .first()
+                )
+
+        left_asset = pair_obj.left if pair_obj else None
+        right_asset = pair_obj.right if pair_obj else None
+        if not left_asset and left_ticker:
+            left_asset = _get_asset(left_ticker)
+        if not right_asset and right_ticker:
+            right_asset = _get_asset(right_ticker)
+        sell_asset = _get_asset(sell_ticker)
+        buy_asset = _get_asset(buy_ticker)
+
+        if not left_asset:
+            errors.append(f"Ativo esquerdo {left_ticker or '?'} nao encontrado.")
+        if not right_asset:
+            errors.append(f"Ativo direito {right_ticker or '?'} nao encontrado.")
+        if not sell_asset:
+            errors.append(f"Ativo vendido {sell_ticker or '?'} nao encontrado.")
+        if not buy_asset:
+            errors.append(f"Ativo comprado {buy_ticker or '?'} nao encontrado.")
+
+        if errors:
+            return respond_with_errors()
+
+        if not pair_obj and left_asset and right_asset:
+            pair_obj = (
+                Pair.objects.select_related("left", "right")
+                .filter(left=left_asset, right=right_asset)
+                .first()
+            )
+
+        pair_ref = pair_obj or (
+            SimpleNamespace(left=left_asset, right=right_asset)
+            if left_asset and right_asset
+            else None
+        )
+
+        metrics_payload = None
+        entry_zscore = None
+        if pair_ref:
+            try:
+                metrics_payload = compute_pair_window_metrics(pair=pair_ref, window=window_value)
+            except Exception:
+                metrics_payload = None
+            if isinstance(metrics_payload, dict):
+                raw_zscore = metrics_payload.get("zscore")
+                try:
+                    entry_zscore = float(raw_zscore) if raw_zscore is not None else None
+                except (TypeError, ValueError):
+                    entry_zscore = None
+
+        try:
+            plan_result = calcular_proporcao_long_short(
+                preco_short=float(sell_price),
+                preco_long=float(buy_price),
+                limite_venda=float(capital),
+                lote=lot_size,
+                ticker_short=sell_ticker,
+                ticker_long=buy_ticker,
+                capital_informado=float(capital),
+            )
+        except ValueError as exc:
+            errors.append(str(exc))
+            return respond_with_errors()
+
+        if plan_result is None:
+            errors.append("Nao foi possivel montar o plano com os dados informados.")
+            return respond_with_errors()
+
+        price_quant = Decimal("0.000001")
+        money_quant = Decimal("0.01")
+        sell_price = sell_price.quantize(price_quant)
+        buy_price = buy_price.quantize(price_quant)
+        sell_value = (sell_price * Decimal(sell_qty)).quantize(money_quant)
+        buy_value = (buy_price * Decimal(buy_qty)).quantize(money_quant)
+        net_value = (sell_value - buy_value).quantize(money_quant)
+        capital_allocated = capital.quantize(money_quant)
+
+        trade_plan_payload = plan_result.to_payload()
+
+        orientation = "default"
+        if left_ticker and right_ticker and sell_ticker and buy_ticker:
+            if sell_ticker == right_ticker and buy_ticker == left_ticker:
+                orientation = "inverted"
+
+        operation = Operation.objects.create(
+            user=request.user,
+            pair=pair_obj,
+            left_asset=left_asset,
+            right_asset=right_asset,
+            sell_asset=sell_asset,
+            buy_asset=buy_asset,
+            window=window_value,
+            orientation=orientation,
+            source=source_value,
+            sell_quantity=sell_qty,
+            buy_quantity=buy_qty,
+            lot_size=lot_size,
+            lot_multiplier=lot_multiplier,
+            sell_price=sell_price,
+            buy_price=buy_price,
+            sell_value=sell_value,
+            buy_value=buy_value,
+            net_value=net_value,
+            capital_allocated=capital_allocated,
+            entry_zscore=entry_zscore,
+            trade_plan=trade_plan_payload,
+            pair_metrics=metrics_payload if isinstance(metrics_payload, dict) else None,
+            is_real=is_real,
+        )
+
+        metrics_snapshot_payload = metrics_payload if isinstance(metrics_payload, dict) else None
+        if metrics_snapshot_payload:
+            snapshot = OperationMetricSnapshot(
+                operation=operation,
+                snapshot_type=OperationMetricSnapshot.TYPE_OPEN,
+                reference_date=timezone.localdate(),
+            )
+            snapshot.apply_payload(metrics_snapshot_payload)
+            snapshot.save()
+
+        redirect_url = reverse("core:operacao_encerrar", args=[operation.pk])
+        return JsonResponse({"ok": True, "redirect": redirect_url})
+
+    if request.method == "POST":
+        return _handle_operation_post()
 
     initial_window = _safe_window(request.GET.get("window"))
     source = (request.GET.get("source") or "").strip().lower()
@@ -555,3 +988,193 @@ def config(request):
         },
     )
 
+
+
+@login_required
+def operacao_encerrar(request, pk: int):
+    operation = get_object_or_404(
+        Operation.objects.select_related(
+            "sell_asset",
+            "buy_asset",
+            "left_asset",
+            "right_asset",
+            "pair",
+        ).prefetch_related(
+            Prefetch(
+                "metric_snapshots",
+                queryset=OperationMetricSnapshot.objects.order_by("-reference_date"),
+            )
+        ),
+        pk=pk,
+        user=request.user,
+        status=Operation.STATUS_OPEN,
+    )
+
+    if request.method == "POST" and request.POST.get("action") == "delete":
+        pair_label = f"{operation.sell_asset.ticker} / {operation.buy_asset.ticker}"
+        operation.delete()
+        messages.success(request, f"Operacao {pair_label} excluida com sucesso.")
+        return redirect("core:home")
+
+    def _fmt_metric(value, digits: int = 2, fallback: str = "--") -> str:
+        if value is None:
+            return fallback
+        try:
+            return f"{float(value):.{digits}f}"
+        except (TypeError, ValueError):
+            return fallback
+
+    def _fmt_samples(value) -> str:
+        if value is None:
+            return "--"
+        try:
+            return number_format(int(value), 0)
+        except (TypeError, ValueError):
+            return "--"
+
+    def _metrics_display(payload) -> list[dict[str, str]]:
+        if not isinstance(payload, dict):
+            return []
+        return [
+            {"label": "Z-score", "value": _fmt_metric(payload.get("zscore"), 2)},
+            {"label": "Half-life", "value": _fmt_metric(payload.get("half_life"), 2)},
+            {"label": "ADF", "value": _fmt_metric(payload.get("adf_pvalue"), 4)},
+            {"label": "Beta", "value": _fmt_metric(payload.get("beta"), 4)},
+            {"label": "Corr 30", "value": _fmt_metric(payload.get("corr30"), 3)},
+            {"label": "Corr 60", "value": _fmt_metric(payload.get("corr60"), 3)},
+            {"label": "Amostra", "value": _fmt_samples(payload.get("n_samples"))},
+        ]
+
+    entry_snapshot = None
+    latest_snapshot = None
+    entry_metrics_payload = {}
+    snapshots = list(operation.metric_snapshots.all())
+    if snapshots:
+        latest_snapshot = snapshots[0]
+        for snap in snapshots:
+            if snap.snapshot_type == OperationMetricSnapshot.TYPE_OPEN and entry_snapshot is None:
+                entry_snapshot = snap
+    if entry_snapshot and entry_snapshot.payload:
+        entry_metrics_payload = entry_snapshot.payload
+    elif isinstance(operation.pair_metrics, dict):
+        entry_metrics_payload = operation.pair_metrics
+
+    entry_zscore = entry_snapshot.zscore if entry_snapshot and entry_snapshot.zscore is not None else operation.entry_zscore
+
+    pair_ref = operation.pair if operation.pair else SimpleNamespace(
+        left=operation.left_asset,
+        right=operation.right_asset,
+    )
+
+    current_metrics_payload = {}
+    current_zscore = None
+    try:
+        metrics_now = compute_pair_window_metrics(pair=pair_ref, window=operation.window)
+    except Exception:
+        metrics_now = None
+
+    if isinstance(metrics_now, dict):
+        current_metrics_payload = metrics_now
+        current_zscore = metrics_now.get("zscore")
+
+    try:
+        raw_zscore_series = get_zscore_series(pair=pair_ref, window=operation.window)
+    except Exception:
+        raw_zscore_series = []
+
+    zscore_series_points: list[dict[str, object]] = []
+    for data_point in raw_zscore_series or []:
+        if data_point is None or len(data_point) < 2:
+            continue
+        dt_value, z_value = data_point
+        if z_value is None:
+            continue
+        if hasattr(dt_value, "strftime"):
+            label = dt_value.strftime("%d/%m")
+        else:
+            label = str(dt_value)
+        try:
+            numeric = float(z_value)
+        except (TypeError, ValueError):
+            continue
+        zscore_series_points.append({"label": label, "value": numeric})
+
+    entry_display = _metrics_display(entry_metrics_payload)
+    current_display = _metrics_display(current_metrics_payload)
+
+    entry_z_label = _fmt_metric(entry_zscore)
+    current_z_label = _fmt_metric(current_zscore)
+
+    z_delta = None
+    z_delta_label = "--"
+    if current_zscore is not None and entry_zscore is not None:
+        try:
+            z_delta = float(current_zscore) - float(entry_zscore)
+            z_delta_label = f"{z_delta:+.2f}"
+        except (TypeError, ValueError):
+            z_delta = None
+            z_delta_label = "--"
+
+    def _format_price(value) -> str:
+        if value is None:
+            return "--"
+        try:
+            return f"R$ {number_format(value, 2)}"
+        except (TypeError, ValueError):
+            return "--"
+
+    def _format_money(value) -> str:
+        if value is None:
+            return "--"
+        return f"R$ {number_format(value, 2)}"
+
+    trade_info = operation.as_trade_dict()
+    trade_summary = {
+        "sell": {
+            "ticker": operation.sell_asset.ticker,
+            "quantity": operation.sell_quantity,
+            "price_label": _format_price(trade_info.get("sell", {}).get("price")),
+            "value_label": _format_money(trade_info.get("sell", {}).get("value")),
+        },
+        "buy": {
+            "ticker": operation.buy_asset.ticker,
+            "quantity": operation.buy_quantity,
+            "price_label": _format_price(trade_info.get("buy", {}).get("price")),
+            "value_label": _format_money(trade_info.get("buy", {}).get("value")),
+        },
+        "net_label": _format_money(trade_info.get("net")),
+        "capital_label": _format_money(trade_info.get("capital_allocated")),
+    }
+
+    try:
+        opened_local = timezone.localtime(operation.opened_at)
+    except Exception:
+        opened_local = operation.opened_at
+
+    return render(
+        request,
+        "core/operacao_encerrar.html",
+        {
+            "current": "home",
+            "title": f"Encerrar operacao {operation.sell_asset.ticker} x {operation.buy_asset.ticker}",
+            "operation": operation,
+            "entry_snapshot": entry_snapshot,
+            "latest_snapshot": latest_snapshot,
+            "entry_metrics": entry_display,
+            "current_metrics": current_display,
+            "entry_zscore_label": entry_z_label,
+            "current_zscore_label": current_z_label,
+            "z_delta_label": z_delta_label,
+            "is_delta_positive": bool(z_delta is not None and z_delta >= 0),
+            "capital_label": _format_money(operation.capital_allocated),
+            "net_label": _format_money(operation.net_value),
+            "net_direction": "recebe" if operation.net_value is not None and operation.net_value >= 0 else "paga",
+            "trade_info": trade_info,
+            "current_metrics_payload": current_metrics_payload,
+            "trade_summary": trade_summary,
+            "opened_label": opened_local.strftime("%d/%m/%Y %H:%M") if opened_local else "",
+            "operation_date_label": operation.operation_date.strftime("%d/%m/%Y") if operation.operation_date else "",
+            "window": operation.window,
+            "zscore_series_points": zscore_series_points,
+        },
+    )
