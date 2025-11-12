@@ -219,7 +219,10 @@
 
                           <td class="text-end">{{ item.entry.prices.buy_qty_label }}</td>
 
-                          <td class="text-end">{{ item.current.prices.buy_price_label }}</td>
+                          <td class="text-end small">
+                            <div class="fw-semibold">{{ item.current.prices.buy_price_label }}</div>
+                            <div class="text-body-tertiary small">Total {{ item.current.prices.buy_total_label }}</div>
+                          </td>
 
                           <td class="text-end">{{ item.current.prices.buy_pl_label }}</td>
 
@@ -231,7 +234,10 @@
 
                           <td class="text-end">{{ item.entry.prices.sell_qty_label }}</td>
 
-                          <td class="text-end">{{ item.current.prices.sell_price_label }}</td>
+                          <td class="text-end small">
+                            <div class="fw-semibold">{{ item.current.prices.sell_price_label }}</div>
+                            <div class="text-body-tertiary small">Total {{ item.current.prices.sell_total_label }}</div>
+                          </td>
 
                           <td class="text-end">{{ item.current.prices.sell_pl_label }}</td>
 
