@@ -22,7 +22,9 @@
             {{ operation.sell_asset.ticker }} / {{ operation.buy_asset.ticker }}
           </h1>
           <div class="text-body-secondary small">
-            Entrada {{ entry_zscore_label }} &rarr; Atual {{ current_zscore_label }} ({{ z_delta_label }})
+            Entrada <span id="detailEntryZscore">{{ entry_zscore_label }}</span> &rarr;
+            Atual <span id="detailCurrentZscore">{{ current_zscore_label }}</span>
+            (<span id="detailZDelta">{{ z_delta_label }}</span>)
           </div>
         </div>
           <div class="text-end">
@@ -31,38 +33,41 @@
           </div>
         </div>
 
-        <div class="text-body-secondary small d-flex flex-wrap gap-3 mb-3">
-          {% if current_prices.updated_label %}
-            <span>Atualizado {{ current_prices.updated_label }}</span>
-          {% endif %}
+        <div class="text-body-secondary small d-flex flex-wrap gap-3 mb-3 align-items-center">
+          <span id="detailPricesUpdated" class="{% if not current_prices.updated_label %}d-none{% endif %}">
+            {% if current_prices.updated_label %}Atualizado {{ current_prices.updated_label }}{% endif %}
+          </span>
           <span>
             <span class="text-danger fw-semibold">Venda {{ operation.sell_asset.ticker }}:</span>
-            {{ current_prices.sell.price_label }}
-            {% if current_prices.sell.source_label %}
-              <span class="text-body-tertiary">({{ current_prices.sell.source_label }})</span>
-            {% endif %}
+            <span id="detailSellPrice">{{ current_prices.sell.price_label }}</span>
+            <span id="detailSellSource" class="text-body-tertiary{% if not current_prices.sell.source_label %} d-none{% endif %}">
+              {% if current_prices.sell.source_label %}({{ current_prices.sell.source_label }}){% endif %}
+            </span>
           </span>
           <span>
             <span class="text-success fw-semibold">Compra {{ operation.buy_asset.ticker }}:</span>
-            {{ current_prices.buy.price_label }}
-            {% if current_prices.buy.source_label %}
-              <span class="text-body-tertiary">({{ current_prices.buy.source_label }})</span>
-            {% endif %}
+            <span id="detailBuyPrice">{{ current_prices.buy.price_label }}</span>
+            <span id="detailBuySource" class="text-body-tertiary{% if not current_prices.buy.source_label %} d-none{% endif %}">
+              {% if current_prices.buy.source_label %}({{ current_prices.buy.source_label }}){% endif %}
+            </span>
           </span>
+          <button type="button" id="refreshDetailBtn" class="btn btn-sm btn-outline-primary ms-auto">
+            Atualizar agora
+          </button>
         </div>
 
         <div class="row row-cols-1 row-cols-md-3 g-3">
         <div class="col">
           <div class="border rounded-3 p-3 h-100">
             <div class="text-uppercase text-body-tertiary fw-semibold small mb-2">Entrada</div>
-            <div class="display-6 fs-3 mb-1">{{ entry_zscore_label }}</div>
+            <div class="display-6 fs-3 mb-1" id="detailEntryZscoreCard">{{ entry_zscore_label }}</div>
             <div class="text-body-secondary small">Z-score</div>
           </div>
         </div>
         <div class="col">
           <div class="border rounded-3 p-3 h-100">
             <div class="text-uppercase text-body-tertiary fw-semibold small mb-2">Atual</div>
-            <div class="display-6 fs-3 mb-1">{{ current_zscore_label }}</div>
+            <div class="display-6 fs-3 mb-1" id="detailCurrentZscoreCard">{{ current_zscore_label }}</div>
             <div class="text-body-secondary small">Z-score agora</div>
           </div>
         </div>
@@ -98,7 +103,7 @@
       <div class="card soft-card shadow-sm rounded-4 h-100">
         <div class="card-body">
           <h2 class="h6 fw-semibold mb-3">Metricas atuais</h2>
-          <dl class="row mb-0 gy-1 small">
+          <dl id="currentMetricsList" class="row mb-0 gy-1 small">
             {% for metric in current_metrics %}
               <dt class="col-6 text-body-tertiary">{{ metric.label }}</dt>
               <dd class="col-6 text-end">{{ metric.value }}</dd>
@@ -158,12 +163,163 @@
     </div>
   </div>
 
-  <div class="card border-0 shadow-sm rounded-4 mt-3 bg-body-tertiary">
+  <div class="card soft-card shadow-sm rounded-4 mt-3">
     <div class="card-body">
-      <h2 class="h6 fw-semibold mb-2">Fluxo de encerramento</h2>
-      <p class="text-body-secondary small mb-0">
-        Esta etapa ainda esta em desenvolvimento. Em breve voce podera registrar a recompra e encerrar a operacao por aqui.
-      </p>
+      <div class="d-flex justify-content-between align-items-start gap-3">
+        <div>
+          <h2 class="h6 fw-semibold mb-1">Boleta atual</h2>
+          <p class="text-body-secondary small mb-0">
+            Estratificacao dos precos ao vivo com o mesmo layout dos cards da pagina inicial.
+          </p>
+        </div>
+        {% if current_prices.updated_label %}
+          <div class="text-end small text-body-secondary">
+            Atualizado {{ current_prices.updated_label }}
+          </div>
+        {% endif %}
+      </div>
+      <div class="table-responsive mt-3">
+        <table class="table table-sm align-middle mb-0">
+          <thead>
+            <tr class="text-body-tertiary">
+              <th scope="col">Ponta</th>
+              <th scope="col" class="text-end">Quantidade</th>
+              <th scope="col" class="text-end">Preco</th>
+              <th scope="col" class="text-end">Valor</th>
+            </tr>
+          </thead>
+          <tbody class="small">
+            <tr class="table-light text-uppercase text-body-tertiary small">
+              <td colspan="4">Entrada</td>
+            </tr>
+            <tr>
+              <td class="text-danger">Vender {{ operation.sell_asset.ticker }}</td>
+              <td class="text-end">{{ entry_prices.sell_qty_label }}</td>
+              <td class="text-end">{{ entry_prices.sell_price_label }}</td>
+              <td class="text-end">{{ entry_prices.sell_total_label }}</td>
+            </tr>
+            <tr>
+              <td class="text-success">Comprar {{ operation.buy_asset.ticker }}</td>
+              <td class="text-end">{{ entry_prices.buy_qty_label }}</td>
+              <td class="text-end">{{ entry_prices.buy_price_label }}</td>
+              <td class="text-end">{{ entry_prices.buy_total_label }}</td>
+            </tr>
+            <tr class="table-active text-uppercase small">
+              <td colspan="3">
+                <span class="text-body-secondary small">Saldo de entrada</span>
+              </td>
+              <td class="text-end">
+                {% with entry_dir=entry_prices.net_direction_label %}
+                  {% if entry_dir %}
+                    <span class="badge text-capitalize small{% if entry_dir == 'recebe' %} bg-primary-subtle text-primary border border-primary{% elif entry_dir == 'paga' %} bg-danger-subtle text-danger border border-danger{% else %} bg-secondary-subtle text-secondary{% endif %}">
+                      {{ entry_dir }}
+                    </span>
+                  {% endif %}
+                  <span class="fw-semibold{% if entry_dir == 'recebe' %} text-primary{% elif entry_dir == 'paga' %} text-danger{% endif %}">
+                    {{ entry_prices.net_label }}
+                  </span>
+                {% endwith %}
+              </td>
+            </tr>
+            <tr class="table-light text-uppercase text-body-tertiary small">
+              <td colspan="4">Atual</td>
+            </tr>
+            <tr>
+              <td class="text-danger">Vender <span class="fw-semibold">{{ operation.buy_asset.ticker }}</span></td>
+              <td class="text-end">{{ entry_prices.buy_qty_label }}</td>
+              <td class="text-end small">
+                <div class="fw-semibold" id="detailBuyPriceCard">{{ current_prices.buy.price_label }}</div>
+                <div class="text-body-tertiary small">
+                  Total <span id="detailBuyTotal">{{ current_prices.buy_total_label }}</span>
+                </div>
+              </td>
+              <td class="text-end" id="detailBuyPl">{{ current_prices.buy_pl_label }}</td>
+            </tr>
+            <tr>
+              <td class="text-success">Comprar <span class="fw-semibold text-success">{{ operation.sell_asset.ticker }}</span></td>
+              <td class="text-end">{{ entry_prices.sell_qty_label }}</td>
+              <td class="text-end small">
+                <div class="fw-semibold" id="detailSellPriceCard">{{ current_prices.sell.price_label }}</div>
+                <div class="text-body-tertiary small">
+                  Total <span id="detailSellTotal">{{ current_prices.sell_total_label }}</span>
+                </div>
+              </td>
+              <td class="text-end" id="detailSellPl">{{ current_prices.sell_pl_label }}</td>
+            </tr>
+            <tr class="table-active text-uppercase small">
+              <td colspan="3">
+                <span class="text-body-secondary small">Saldo atual</span>
+              </td>
+              <td class="text-end">
+                {% with final_dir=current_prices.final_direction_label %}
+                  {% if final_dir %}
+                    <span class="badge text-capitalize small{% if final_dir == 'recebe' %} bg-primary-subtle text-primary border border-primary{% elif final_dir == 'paga' %} bg-danger-subtle text-danger border border-danger{% else %} bg-secondary-subtle text-secondary{% endif %}">
+                      {{ final_dir }}
+                    </span>
+                  {% endif %}
+                  <span class="fw-semibold{% if final_dir == 'recebe' %} text-primary{% elif final_dir == 'paga' %} text-danger{% endif %}">
+                    {{ current_prices.final_label }}
+                  </span>
+                {% endwith %}
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="card border rounded-3 p-3 small mt-3">
+        <div class="row gy-1">
+          <div class="col-6 d-flex justify-content-between">
+            <span class="text-body-tertiary">Capital alocado</span>
+            <span class="fw-semibold">{{ trade_summary.capital_label }}</span>
+          </div>
+          <div class="col-6 d-flex justify-content-between">
+            <span class="text-body-tertiary">Saldo entrada</span>
+            <span class="fw-semibold">{{ entry_prices.net_label }}</span>
+          </div>
+          <div class="col-6 d-flex justify-content-between">
+            <span class="text-body-tertiary">Resultado (P/L)</span>
+            <span class="fw-semibold" id="detailPlTotal">{{ current_prices.pl_total_label }}</span>
+          </div>
+          <div class="col-12">
+            <div class="text-body-secondary small">
+              Resultado indica o P/L com base nos precos mais recentes; o Saldo atual mostra o caixa
+              projetado caso a operacao fosse encerrada agora.
+            </div>
+          </div>
+          <div class="col-12">
+            <div id="detailPnlSummary" class="small text-body-secondary d-flex flex-wrap gap-3 mt-3">
+              {% if pnl_summary %}
+                <span>Capital total: {{ pnl_summary.capital_total_label }}</span>
+                <span>Lucro ponta curta: {{ pnl_summary.lucro_short_label }}</span>
+                <span>Lucro ponta longa: {{ pnl_summary.lucro_long_label }}</span>
+                <span>Lucro total: {{ pnl_summary.lucro_total_label }}</span>
+                <span>Retorno short: {{ pnl_summary.retorno_short_label }}</span>
+                <span>Retorno long: {{ pnl_summary.retorno_long_label }}</span>
+                <span>Retorno total: {{ pnl_summary.retorno_total_label }}</span>
+              {% else %}
+                <span>Totais e retornos indisponiveis no momento.</span>
+              {% endif %}
+            </div>
+          </div>
+          <div class="col-12">
+            <div class="border rounded-3 px-3 py-2 d-flex align-items-center justify-content-between gap-2 bg-body-tertiary">
+              <div class="text-body-secondary small d-flex align-items-center gap-2">
+                <span>Saldo atual</span>
+                {% with final_dir=current_prices.final_direction_label %}
+                  {% if final_dir %}
+                    <span class="badge text-capitalize small{% if final_dir == 'recebe' %} bg-primary-subtle text-primary border border-primary{% elif final_dir == 'paga' %} bg-danger-subtle text-danger border border-danger{% else %} bg-secondary-subtle text-secondary{% endif %}">
+                      {{ final_dir }}
+                    </span>
+                  {% endif %}
+                {% endwith %}
+              </div>
+              <div class="fw-semibold {% if current_prices.final_direction_label == 'recebe' %}text-primary{% elif current_prices.final_direction_label == 'paga' %}text-danger{% endif %}" id="detailFinalValue">
+                {{ current_prices.final_label }}
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
   </div>
 
@@ -188,12 +344,20 @@
       {% endif %}
       <form method="post" class="mt-3 d-flex flex-column flex-sm-row align-items-stretch align-items-sm-center gap-2">
         {% csrf_token %}
-        <input type="hidden" name="action" value="delete">
-        <button type="submit" class="btn btn-danger btn-sm w-100 w-sm-auto">Excluir operacao</button>
+        <input type="hidden" name="action" value="close">
+        <button type="submit" class="btn btn-danger btn-sm w-100 w-sm-auto">Encerrar a operação</button>
         <p class="text-body-secondary small mb-0">
-          Remova pares inconsistentes para manter os cards do inicio sincronizados.
+          Marque o fechamento desta operacao para liberar os cards do inicio.
         </p>
       </form>
+    </div>
+  </div>
+  <div class="card border-0 shadow-sm rounded-4 mt-3 bg-body-tertiary">
+    <div class="card-body">
+      <h2 class="h6 fw-semibold mb-2">Fluxo de encerramento</h2>
+      <p class="text-body-secondary small mb-0">
+        Esta etapa ainda esta em desenvolvimento. Em breve voce podera registrar a recompra e encerrar a operacao por aqui.
+      </p>
     </div>
   </div>
   </div>
@@ -258,6 +422,190 @@
             },
           },
         });
+      })();
+    </script>
+    <script>
+      (function () {
+        const endpoint = "{% url 'core:operacao_refresh' operation.pk %}";
+        const refreshBtn = document.getElementById("refreshDetailBtn");
+        const updatedLabel = document.getElementById("detailPricesUpdated");
+        const sellPriceEl = document.getElementById("detailSellPrice");
+        const sellSourceEl = document.getElementById("detailSellSource");
+        const buyPriceEl = document.getElementById("detailBuyPrice");
+        const buySourceEl = document.getElementById("detailBuySource");
+        const sellTotalEl = document.getElementById("detailSellTotal");
+        const buyTotalEl = document.getElementById("detailBuyTotal");
+        const sellPlEl = document.getElementById("detailSellPl");
+        const buyPlEl = document.getElementById("detailBuyPl");
+        const plTotalEl = document.getElementById("detailPlTotal");
+        const finalValueEl = document.getElementById("detailFinalValue");
+        const pnlSummaryEl = document.getElementById("detailPnlSummary");
+        const entryZscore = document.getElementById("detailEntryZscore");
+        const currentZscore = document.getElementById("detailCurrentZscore");
+        const entryZscoreCard = document.getElementById("detailEntryZscoreCard");
+        const currentZscoreCard = document.getElementById("detailCurrentZscoreCard");
+        const zDeltaText = document.getElementById("detailZDelta");
+        const metricsList = document.getElementById("currentMetricsList");
+        let isFetching = false;
+        const originalBtnLabel = refreshBtn ? refreshBtn.textContent.trim() : "Atualizar agora";
+
+        function renderMetrics(metrics) {
+          if (!metricsList || !Array.isArray(metrics)) {
+            return;
+          }
+          const html = metrics
+            .map(function (metric) {
+              return (
+                "<dt class=\"col-6 text-body-tertiary\">" +
+                metric.label +
+                "</dt>" +
+                "<dd class=\"col-6 text-end\">" +
+                metric.value +
+                "</dd>"
+              );
+            })
+            .join("");
+          metricsList.innerHTML = html;
+        }
+
+        function renderPnlSummary(summary) {
+          if (!pnlSummaryEl) {
+            return;
+          }
+          if (!summary) {
+            pnlSummaryEl.innerHTML = "<span>Totais e retornos indisponiveis no momento.</span>";
+            return;
+          }
+          const parts = [
+            `Capital total: ${summary.capital_total_label}`,
+            `Lucro ponta curta: ${summary.lucro_short_label}`,
+            `Lucro ponta longa: ${summary.lucro_long_label}`,
+            `Lucro total: ${summary.lucro_total_label}`,
+            `Retorno short: ${summary.retorno_short_label}`,
+            `Retorno long: ${summary.retorno_long_label}`,
+            `Retorno total: ${summary.retorno_total_label}`,
+          ];
+          pnlSummaryEl.innerHTML = parts
+            .map(function (part) {
+              return `<span>${part}</span>`;
+            })
+            .join("");
+        }
+
+        function updatePriceSource(element, label) {
+          if (!element) {
+            return;
+          }
+          if (label) {
+            element.textContent = "(" + label + ")";
+            element.classList.remove("d-none");
+          } else {
+            element.textContent = "";
+            element.classList.add("d-none");
+          }
+        }
+
+        async function refreshData() {
+          if (isFetching) {
+            return;
+          }
+          isFetching = true;
+          if (refreshBtn) {
+            refreshBtn.disabled = true;
+            refreshBtn.textContent = "Atualizando...";
+          }
+          try {
+            const response = await fetch(endpoint, {
+              headers: {
+                "X-Requested-With": "XMLHttpRequest",
+              },
+              credentials: "same-origin",
+              cache: "no-store",
+            });
+            if (!response.ok) {
+              throw new Error("Falha ao atualizar");
+            }
+            const data = await response.json();
+            if (!data || !data.ok) {
+              throw new Error((data && data.detail) || "Falha ao interpretar os dados");
+            }
+            const currentPrices = data.current_prices || {};
+            const sellPrices = currentPrices.sell || {};
+            const buyPrices = currentPrices.buy || {};
+
+            if (updatedLabel) {
+              if (currentPrices.updated_label) {
+                updatedLabel.textContent = "Atualizado " + currentPrices.updated_label;
+                updatedLabel.classList.remove("d-none");
+              } else {
+                updatedLabel.textContent = "";
+                updatedLabel.classList.add("d-none");
+              }
+            }
+
+            if (sellPriceEl) {
+              sellPriceEl.textContent = sellPrices.price_label || "--";
+            }
+            if (buyPriceEl) {
+              buyPriceEl.textContent = buyPrices.price_label || "--";
+            }
+            updatePriceSource(sellSourceEl, sellPrices.source_label);
+            updatePriceSource(buySourceEl, buyPrices.source_label);
+            if (sellTotalEl) {
+              sellTotalEl.textContent = currentPrices.sell_total_label || "--";
+            }
+            if (buyTotalEl) {
+              buyTotalEl.textContent = currentPrices.buy_total_label || "--";
+            }
+            if (sellPlEl) {
+              sellPlEl.textContent = currentPrices.sell_pl_label || "--";
+            }
+            if (buyPlEl) {
+              buyPlEl.textContent = currentPrices.buy_pl_label || "--";
+            }
+            if (plTotalEl) {
+              plTotalEl.textContent = currentPrices.pl_total_label || "--";
+            }
+            if (finalValueEl) {
+              finalValueEl.textContent = currentPrices.final_label || "--";
+            }
+
+            if (entryZscore) {
+              entryZscore.textContent = data.entry_zscore_label || "--";
+            }
+            if (currentZscore) {
+              currentZscore.textContent = data.current_zscore_label || "--";
+            }
+            if (entryZscoreCard) {
+              entryZscoreCard.textContent = data.entry_zscore_label || "--";
+            }
+            if (currentZscoreCard) {
+              currentZscoreCard.textContent = data.current_zscore_label || "--";
+            }
+            if (zDeltaText) {
+              zDeltaText.textContent = data.z_delta_label || "--";
+            }
+            renderMetrics(data.current_metrics);
+            renderPnlSummary(data.pnl_summary);
+          } catch (err) {
+            console.error("Falha ao atualizar os detalhes da operacao", err);
+          } finally {
+            isFetching = false;
+            if (refreshBtn) {
+              refreshBtn.disabled = false;
+              refreshBtn.textContent = originalBtnLabel || "Atualizar agora";
+            }
+          }
+        }
+
+        if (refreshBtn) {
+          refreshBtn.addEventListener("click", function (ev) {
+            ev.preventDefault();
+            refreshData();
+          });
+        }
+
+        refreshData();
       })();
     </script>
   {% endblock %}
