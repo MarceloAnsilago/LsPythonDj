@@ -331,8 +331,8 @@ def _resolve_context(request: HttpRequest, config: UserMetricsConfig | None) -> 
         except Pair.DoesNotExist:
             pair = Pair(left=left, right=right, base_window=base_default, chosen_window=window or base_default)
         if not window:
-            window = p.chosen_window or p.base_window or 180
-        return p, window, "ad-hoc"
+            window = pair.chosen_window or pair.base_window or 180
+        return pair, window, "ad-hoc"
 
     if "op" in request.GET:
         raise Http404("Integracao com Operacoes estara disponivel na fase 2.")
@@ -465,4 +465,3 @@ def analysis_zseries(request: HttpRequest) -> HttpResponse:
         "generated_at": now(),
     }
     return render(request, "pairs/_analysis_panel.html", context)
-
