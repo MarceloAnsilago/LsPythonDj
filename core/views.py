@@ -5,7 +5,7 @@ from types import SimpleNamespace
 
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
-from django.db.models import Prefetch
+from django.db.models import Prefetch, Q
 from django.http import JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.template.loader import render_to_string
@@ -709,6 +709,42 @@ def operacoes(request):
             return None
         return Asset.objects.select_related("live_quote").filter(ticker=_normalize_ticker(ticker)).first()
 
+    def _build_existing_operation_info(left_asset: Asset | None, right_asset: Asset | None, pair_obj: Pair | None):
+        if not left_asset or not right_asset:
+            return None
+        filters = (
+            Q(left_asset=left_asset, right_asset=right_asset)
+            | Q(left_asset=right_asset, right_asset=left_asset)
+        )
+        if pair_obj:
+            filters |= Q(pair=pair_obj)
+        existing_op = (
+            Operation.objects.select_related("sell_asset", "buy_asset")
+            .filter(user=request.user, status=Operation.STATUS_OPEN)
+            .filter(filters)
+            .order_by("-opened_at")
+            .first()
+        )
+        if not existing_op:
+            return None
+        opened_label = ""
+        if existing_op.opened_at:
+            try:
+                opened_label = timezone.localtime(existing_op.opened_at).strftime("%d/%m %H:%M")
+            except Exception:
+                opened_label = ""
+        is_inverted = (
+            existing_op.left_asset == right_asset and existing_op.right_asset == left_asset
+        )
+        pair_label = existing_op.formatted_pair()
+        descriptor = "par invertido" if is_inverted else "mesmo par selecionado"
+        return {
+            "message": f"Ja existe uma operacao em andamento para {pair_label} ({descriptor}). Deseja continuar?",
+            "opened_label": opened_label,
+            "url": reverse("core:operacao_encerrar", args=[existing_op.pk]),
+            "pair_label": pair_label,
+        }
+
     def _format_updated(dt_value):
         if not dt_value:
             return ""
@@ -1073,6 +1109,8 @@ def operacoes(request):
     elif not sell_info["ticker"] and not buy_info["ticker"]:
         summary_note = "Informe os tickers para montar o plano da operacao."
 
+    existing_operation_info = _build_existing_operation_info(left_asset, right_asset, pair_obj)
+
     summary = {
         "zscore": zscore_value,
         "zscore_label": f"{zscore_value:.2f}" if zscore_value is not None else None,
@@ -1292,6 +1330,7 @@ def operacoes(request):
         "pair_obj": pair_obj,
         "prefilled": bool(initial_left and initial_right),
         "summary": summary,
+        "existing_operation_info": existing_operation_info,
         "valuation": valuation,
     }
     return render(request, "core/operacoes.html", context)
