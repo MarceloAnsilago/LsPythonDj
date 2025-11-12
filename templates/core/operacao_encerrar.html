@@ -25,13 +25,33 @@
             Entrada {{ entry_zscore_label }} &rarr; Atual {{ current_zscore_label }} ({{ z_delta_label }})
           </div>
         </div>
-        <div class="text-end">
-          <div class="fw-semibold">{{ capital_label }}</div>
-          <div class="text-body-secondary small">Capital alocado</div>
+          <div class="text-end">
+            <div class="fw-semibold">{{ capital_label }}</div>
+            <div class="text-body-secondary small">Capital alocado</div>
+          </div>
         </div>
-      </div>
 
-      <div class="row row-cols-1 row-cols-md-3 g-3">
+        <div class="text-body-secondary small d-flex flex-wrap gap-3 mb-3">
+          {% if current_prices.updated_label %}
+            <span>Atualizado {{ current_prices.updated_label }}</span>
+          {% endif %}
+          <span>
+            <span class="text-danger fw-semibold">Venda {{ operation.sell_asset.ticker }}:</span>
+            {{ current_prices.sell.price_label }}
+            {% if current_prices.sell.source_label %}
+              <span class="text-body-tertiary">({{ current_prices.sell.source_label }})</span>
+            {% endif %}
+          </span>
+          <span>
+            <span class="text-success fw-semibold">Compra {{ operation.buy_asset.ticker }}:</span>
+            {{ current_prices.buy.price_label }}
+            {% if current_prices.buy.source_label %}
+              <span class="text-body-tertiary">({{ current_prices.buy.source_label }})</span>
+            {% endif %}
+          </span>
+        </div>
+
+        <div class="row row-cols-1 row-cols-md-3 g-3">
         <div class="col">
           <div class="border rounded-3 p-3 h-100">
             <div class="text-uppercase text-body-tertiary fw-semibold small mb-2">Entrada</div>

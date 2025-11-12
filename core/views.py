@@ -53,6 +53,42 @@ def home(request):
         except (TypeError, ValueError):
             return "--"
 
+    def _long_short_pnl(
+        entry_short: Decimal | float | None,
+        exit_short: Decimal | float | None,
+        entry_long: Decimal | float | None,
+        exit_long: Decimal | float | None,
+        capital_short: Decimal | float | None,
+        capital_long: Decimal | float | None,
+    ) -> dict[str, float] | None:
+        try:
+            entry_short_f = float(entry_short)
+            exit_short_f = float(exit_short)
+            entry_long_f = float(entry_long)
+            exit_long_f = float(exit_long)
+        except (TypeError, ValueError):
+            return None
+        capital_short_f = float(capital_short or 0.0)
+        capital_long_f = float(capital_long or 0.0)
+        if entry_short_f == 0 or entry_long_f == 0:
+            return None
+        r_short = (entry_short_f - exit_short_f) / entry_short_f
+        r_long = (exit_long_f - entry_long_f) / entry_long_f
+        pnl_short = capital_short_f * r_short
+        pnl_long = capital_long_f * r_long
+        total_capital = capital_short_f + capital_long_f
+        total_pnl = pnl_short + pnl_long
+        total_return = total_pnl / total_capital if total_capital else 0.0
+        return {
+            "retorno_short_%": r_short * 100,
+            "retorno_long_%": r_long * 100,
+            "lucro_short": pnl_short,
+            "lucro_long": pnl_long,
+            "lucro_total": total_pnl,
+            "retorno_total_%": total_return * 100,
+            "capital_total": total_capital,
+        }
+
     def _fmt_updated(dt_value):
         if not dt_value:
             return ""
@@ -61,6 +97,52 @@ def home(request):
         except Exception:
             localized = dt_value
         return localized.strftime("%d/%m %H:%M")
+
+    yahoo_price_cache: dict[str, tuple[Decimal | None, bool]] = {}
+    manual_refresh_required = False
+
+    def _normalize_ticker(value: str | None) -> str:
+        return (value or "").strip().upper()
+
+    def _try_fetch_yahoo_price(ticker_norm: str) -> tuple[Decimal | None, bool]:
+        if not ticker_norm:
+            return None, False
+        cached = yahoo_price_cache.get(ticker_norm)
+        if cached is not None:
+            return cached
+        price: Decimal | None = None
+        error = False
+        try:
+            px = fetch_latest_price(ticker_norm)
+            if px is not None:
+                price = Decimal(str(px))
+        except Exception:
+            error = True
+        yahoo_price_cache[ticker_norm] = (price, error)
+        return price, error
+
+    def _refresh_live_price_with_yahoo(
+        asset: Asset | None,
+        current_price: Decimal | None,
+        current_updated,
+    ):
+        nonlocal manual_refresh_required
+        if not asset:
+            return current_price, current_updated
+        ticker_norm = _normalize_ticker(getattr(asset, "ticker", None))
+        if not ticker_norm:
+            return current_price, current_updated
+        yahoo_price, _ = _try_fetch_yahoo_price(ticker_norm)
+        if yahoo_price is not None:
+            current_price = yahoo_price
+            current_updated = timezone.now()
+            try:
+                QuoteLive.objects.update_or_create(asset=asset, defaults={"price": float(yahoo_price)})
+            except Exception:
+                pass
+        else:
+            manual_refresh_required = True
+        return current_price, current_updated
 
     money_quant = Decimal("0.01")
 
@@ -130,7 +212,13 @@ def home(request):
             return price, updated
 
         sell_live_price, sell_updated = _build_live_price(operation.sell_asset)
+        sell_live_price, sell_updated = _refresh_live_price_with_yahoo(
+            operation.sell_asset, sell_live_price, sell_updated
+        )
         buy_live_price, buy_updated = _build_live_price(operation.buy_asset)
+        buy_live_price, buy_updated = _refresh_live_price_with_yahoo(
+            operation.buy_asset, buy_live_price, buy_updated
+        )
 
         sell_qty_dec = Decimal(operation.sell_quantity)
         buy_qty_dec = Decimal(operation.buy_quantity)
@@ -151,6 +239,10 @@ def home(request):
         current_net_value = None
         if current_sell_total is not None and current_buy_total is not None:
             current_net_value = (current_sell_total - current_buy_total).quantize(money_quant)
+
+        net_direction_label = ""
+        if current_net_value is not None:
+            net_direction_label = "recebe" if current_net_value >= 0 else "paga"
 
         pl_total = None
         if sell_pl is not None and buy_pl is not None:
@@ -205,6 +297,43 @@ def home(request):
             "pl_total_label": _fmt_money(pl_total),
         }
 
+        pnl_summary = None
+        if sell_live_price is not None and buy_live_price is not None:
+            capital_allocated_float = float(operation.capital_allocated or 0.0)
+            total_trade_value = float(operation.sell_value + operation.buy_value)
+            if total_trade_value > 0:
+                short_share = float(operation.sell_value) / total_trade_value
+            else:
+                short_share = 0.5
+            capital_short = capital_allocated_float * short_share
+            capital_long = capital_allocated_float - capital_short
+            pnl_stats = _long_short_pnl(
+                entry_short=operation.sell_price,
+                exit_short=sell_live_price,
+                entry_long=operation.buy_price,
+                exit_long=buy_live_price,
+                capital_short=capital_short,
+                capital_long=capital_long,
+            )
+            if pnl_stats:
+                def _format_pct(value: float | None) -> str:
+                    if value is None:
+                        return "--"
+                    try:
+                        return f"{value:+.2f}%"
+                    except (TypeError, ValueError):
+                        return "--"
+
+                pnl_summary = {
+                    "capital_total_label": _fmt_money(pnl_stats.get("capital_total")),
+                    "lucro_short_label": _fmt_money(pnl_stats.get("lucro_short")),
+                    "lucro_long_label": _fmt_money(pnl_stats.get("lucro_long")),
+                    "lucro_total_label": _fmt_money(pnl_stats.get("lucro_total")),
+                    "retorno_short_label": _format_pct(pnl_stats.get("retorno_short_%")),
+                    "retorno_long_label": _format_pct(pnl_stats.get("retorno_long_%")),
+                    "retorno_total_label": _format_pct(pnl_stats.get("retorno_total_%")),
+                }
+
         operations_cards.append(
             {
                 "operation": operation,
@@ -227,6 +356,8 @@ def home(request):
                 "pnl_negative": pnl_negative,
                 "sell_link": _yahoo_quote_url(operation.sell_asset),
                 "buy_link": _yahoo_quote_url(operation.buy_asset),
+                "net_direction_label": net_direction_label,
+                "pnl_summary": pnl_summary,
             }
         )
 
@@ -237,6 +368,7 @@ def home(request):
             "current": "home",
             "title": "Inicio - Operacoes em andamento",
             "operations_cards": operations_cards,
+            "live_refresh_required": manual_refresh_required,
         },
     )
 
@@ -1016,6 +1148,62 @@ def operacao_encerrar(request, pk: int):
         messages.success(request, f"Operacao {pair_label} excluida com sucesso.")
         return redirect("core:home")
 
+    def _format_updated(dt_value) -> str:
+        if not dt_value:
+            return ""
+        try:
+            localized = timezone.localtime(dt_value)
+        except Exception:
+            localized = dt_value
+        try:
+            return localized.strftime("%d/%m %H:%M")
+        except Exception:
+            return ""
+
+    def _build_current_asset_price(asset: Asset | None) -> tuple[Decimal | None, object | None, str | None]:
+        if not asset:
+            return None, None, None
+        price: Decimal | None = None
+        updated = None
+        source = None
+        live_quote = getattr(asset, "live_quote", None)
+        if live_quote and live_quote.price is not None:
+            try:
+                price = Decimal(str(live_quote.price))
+            except (TypeError, ValueError, InvalidOperation):
+                price = None
+            else:
+                updated = getattr(live_quote, "updated_at", None)
+                source = "cache"
+        if price is None:
+            ticker = (getattr(asset, "ticker", "") or "").strip().upper()
+            if ticker:
+                yahoo_price = None
+                try:
+                    yahoo_price = fetch_latest_price(ticker)
+                except Exception:
+                    yahoo_price = None
+                if yahoo_price is not None:
+                    try:
+                        price = Decimal(str(yahoo_price))
+                    except (TypeError, ValueError, InvalidOperation):
+                        price = None
+                    else:
+                        updated = timezone.now()
+                        source = "yahoo"
+                        try:
+                            QuoteLive.objects.update_or_create(asset=asset, defaults={"price": float(price)})
+                        except Exception:
+                            pass
+        return price, updated, source
+
+    def _source_label(src: str | None) -> str:
+        if src == "yahoo":
+            return "Yahoo (agora)"
+        if src == "cache":
+            return "Yahoo (cache)"
+        return ""
+
     def _fmt_metric(value, digits: int = 2, fallback: str = "--") -> str:
         if value is None:
             return fallback
@@ -1146,6 +1334,24 @@ def operacao_encerrar(request, pk: int):
         "capital_label": _format_money(trade_info.get("capital_allocated")),
     }
 
+    sell_current_price, sell_price_updated, sell_price_source = _build_current_asset_price(operation.sell_asset)
+    buy_current_price, buy_price_updated, buy_price_source = _build_current_asset_price(operation.buy_asset)
+    latest_price_update = max(
+        (dt for dt in (sell_price_updated, buy_price_updated) if dt is not None),
+        default=None,
+    )
+    current_prices = {
+        "updated_label": _format_updated(latest_price_update),
+        "sell": {
+            "price_label": _format_price(sell_current_price),
+            "source_label": _source_label(sell_price_source),
+        },
+        "buy": {
+            "price_label": _format_price(buy_current_price),
+            "source_label": _source_label(buy_price_source),
+        },
+    }
+
     try:
         opened_local = timezone.localtime(operation.opened_at)
     except Exception:
@@ -1172,6 +1378,7 @@ def operacao_encerrar(request, pk: int):
             "trade_info": trade_info,
             "current_metrics_payload": current_metrics_payload,
             "trade_summary": trade_summary,
+            "current_prices": current_prices,
             "opened_label": opened_local.strftime("%d/%m/%Y %H:%M") if opened_local else "",
             "operation_date_label": operation.operation_date.strftime("%d/%m/%Y") if operation.operation_date else "",
             "window": operation.window,
