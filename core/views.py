@@ -251,10 +251,6 @@ def _build_home_operations_payload(request):
         if current_sell_total is not None and current_buy_total is not None:
             current_net_value = (current_sell_total - current_buy_total).quantize(money_quant)
 
-        net_direction_label = ""
-        if current_net_value is not None:
-            net_direction_label = "recebe" if current_net_value >= 0 else "paga"
-
         pl_total = None
         if sell_pl is not None and buy_pl is not None:
             pl_total = (sell_pl + buy_pl).quantize(money_quant)
@@ -276,6 +272,10 @@ def _build_home_operations_payload(request):
                 z_delta_label = "--"
                 is_delta_positive = False
 
+        entry_net_direction = ""
+        if operation.net_value is not None:
+            entry_net_direction = "recebe" if operation.net_value >= 0 else "paga"
+
         entry_prices = {
             "sell_qty_label": _fmt_int(operation.sell_quantity),
             "buy_qty_label": _fmt_int(operation.buy_quantity),
@@ -284,6 +284,7 @@ def _build_home_operations_payload(request):
             "sell_total_label": _fmt_money(operation.sell_value),
             "buy_total_label": _fmt_money(operation.buy_value),
             "net_label": _fmt_money(operation.net_value),
+            "net_direction_label": entry_net_direction,
         }
 
         def _yahoo_quote_url(asset: Asset | None) -> str:
@@ -296,6 +297,11 @@ def _build_home_operations_payload(request):
                 return "#"
             return f"https://finance.yahoo.com/quote/{ticker_yf}"
 
+        final_value = pl_total if pl_total is not None else current_net_value
+        final_direction_label = ""
+        if final_value is not None:
+            final_direction_label = "recebe" if final_value >= 0 else "paga"
+
         current_prices = {
             "updated_label": _fmt_updated(latest_update),
             "sell_price_label": _fmt_money(sell_live_price),
@@ -306,6 +312,8 @@ def _build_home_operations_payload(request):
             "buy_pl_label": _fmt_money(buy_pl),
             "net_label": _fmt_money(current_net_value),
             "pl_total_label": _fmt_money(pl_total),
+            "final_label": _fmt_money(final_value),
+            "final_direction_label": final_direction_label,
         }
 
         pnl_summary = None
@@ -367,7 +375,6 @@ def _build_home_operations_payload(request):
                 "pnl_negative": pnl_negative,
                 "sell_link": _yahoo_quote_url(operation.sell_asset),
                 "buy_link": _yahoo_quote_url(operation.buy_asset),
-                "net_direction_label": net_direction_label,
                 "pnl_summary": pnl_summary,
                 "pl_total": pl_total,
                 "current_zscore": current_zscore,
@@ -397,6 +404,22 @@ def _build_home_operations_payload(request):
         else:
             stats_neutral += 1
 
+    max_capital = (
+        max(
+            (_to_decimal(card["operation"].capital_allocated) for card in operations_cards),
+            default=Decimal("0"),
+        )
+        if operations_cards
+        else Decimal("0")
+    )
+
+    resolved_operations = stats_positive + stats_negative + stats_neutral
+
+    def _pct_label(value: int) -> str:
+        if resolved_operations == 0:
+            return "--"
+        return f"{int((value / resolved_operations) * 100)}%"
+
     operations_summary = {
         "total_operations": total_operations,
         "positive_operations": stats_positive,
@@ -407,11 +430,30 @@ def _build_home_operations_payload(request):
         "net_value": stats_net_total,
         "net_is_positive": stats_net_total >= 0,
         "total_capital_label": _fmt_money(stats_capital),
+        "total_operations_label": _fmt_int(total_operations),
+        "positive_operations_label": _fmt_int(stats_positive),
+        "negative_operations_label": _fmt_int(stats_negative),
+        "neutral_operations_label": _fmt_int(stats_neutral),
+        "positive_pct_label": _pct_label(stats_positive),
+        "negative_pct_label": _pct_label(stats_negative),
+        "neutral_pct_label": _pct_label(stats_neutral),
+        "resolved_operations": resolved_operations,
+    }
+
+    ready_count = sum(1 for card in operations_cards if card.get("pnl_ready"))
+    avg_ready_pl = stats_net_total / ready_count if ready_count else Decimal("0")
+    operations_insight = {
+        "ready_count": ready_count,
+        "pending_count": stats_pending,
+        "avg_ready_label": _fmt_money(avg_ready_pl) if ready_count else "--",
+        "max_capital_label": _fmt_money(max_capital),
+        "ready_pct_label": f"{int((ready_count / total_operations) * 100)}%" if total_operations else "--",
     }
 
     return {
         "operations_cards": operations_cards,
         "operations_summary": operations_summary,
+        "operations_insight": operations_insight,
         "live_refresh_required": manual_refresh_required,
     }
 
