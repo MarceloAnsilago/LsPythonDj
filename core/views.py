@@ -358,8 +358,11 @@ def home(request):
                 "buy_link": _yahoo_quote_url(operation.buy_asset),
                 "net_direction_label": net_direction_label,
                 "pnl_summary": pnl_summary,
+                "current_zscore": current_zscore,
             }
         )
+
+    operations_cards.sort(key=lambda card: (card.get("current_zscore") is None, card.get("current_zscore") or 0.0))
 
     return render(
         request,
