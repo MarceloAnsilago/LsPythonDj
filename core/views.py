@@ -8,6 +8,7 @@ from django.contrib.auth.decorators import login_required
 from django.db.models import Prefetch
 from django.http import JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
+from django.template.loader import render_to_string
 from django.urls import reverse
 from django.utils import timezone
 from django.utils.formats import number_format
@@ -26,7 +27,7 @@ from pairs.models import Pair, UserMetricsConfig
 from operacoes.models import Operation, OperationMetricSnapshot
 
 
-def home(request):
+def _build_home_operations_payload(request):
     operations_cards: list[dict] = []
 
     def _fmt_money(value: Decimal | float | None) -> str:
@@ -52,6 +53,16 @@ def home(request):
             return f"{float(value):.{digits}f}"
         except (TypeError, ValueError):
             return "--"
+
+    def _to_decimal(value: Decimal | float | int | None) -> Decimal:
+        if value is None:
+            return Decimal("0")
+        if isinstance(value, Decimal):
+            return value
+        try:
+            return Decimal(str(value))
+        except (TypeError, ValueError, InvalidOperation):
+            return Decimal("0")
 
     def _long_short_pnl(
         entry_short: Decimal | float | None,
@@ -358,22 +369,70 @@ def home(request):
                 "buy_link": _yahoo_quote_url(operation.buy_asset),
                 "net_direction_label": net_direction_label,
                 "pnl_summary": pnl_summary,
+                "pl_total": pl_total,
                 "current_zscore": current_zscore,
             }
         )
 
     operations_cards.sort(key=lambda card: (card.get("current_zscore") is None, card.get("current_zscore") or 0.0))
 
+    total_operations = len(operations_cards)
+    stats_capital = Decimal("0")
+    stats_net_total = Decimal("0")
+    stats_positive = 0
+    stats_negative = 0
+    stats_neutral = 0
+    stats_pending = 0
+    for card in operations_cards:
+        stats_capital += _to_decimal(card["operation"].capital_allocated)
+        pl_value = card.get("pl_total")
+        if pl_value is None:
+            stats_pending += 1
+            continue
+        stats_net_total += pl_value
+        if pl_value > 0:
+            stats_positive += 1
+        elif pl_value < 0:
+            stats_negative += 1
+        else:
+            stats_neutral += 1
+
+    operations_summary = {
+        "total_operations": total_operations,
+        "positive_operations": stats_positive,
+        "negative_operations": stats_negative,
+        "neutral_operations": stats_neutral,
+        "pending_operations": stats_pending,
+        "net_label": _fmt_money(stats_net_total),
+        "net_value": stats_net_total,
+        "net_is_positive": stats_net_total >= 0,
+        "total_capital_label": _fmt_money(stats_capital),
+    }
+
+    return {
+        "operations_cards": operations_cards,
+        "operations_summary": operations_summary,
+        "live_refresh_required": manual_refresh_required,
+    }
+
+
+def home(request):
     return render(
         request,
         "core/home.html",
         {
             "current": "home",
             "title": "Inicio - Operacoes em andamento",
-            "operations_cards": operations_cards,
-            "live_refresh_required": manual_refresh_required,
+            "operations_data_url": reverse("core:home_data"),
         },
     )
+
+
+@login_required
+def home_data(request):
+    payload = _build_home_operations_payload(request)
+    html = render_to_string("core/_home_operations.html", payload, request=request)
+    return JsonResponse({"ok": True, "html": html})
 
 
 def stub_page(request, page: str = "Pagina"):

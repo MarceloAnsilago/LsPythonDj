@@ -7,6 +7,7 @@ app_name = "core"
 
 urlpatterns = [
     path("", login_required(views.home), name="home"),
+    path("data/", login_required(views.home_data), name="home_data"),
     path("pares/", login_required(views.stub_page), {"page": "Pares"}, name="pares"),
     path("analise/", login_required(views.stub_page), {"page": "Analise"}, name="analise"),
     path("operacoes/", views.operacoes, name="operacoes"),

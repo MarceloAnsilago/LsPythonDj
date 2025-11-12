@@ -1,0 +1,410 @@
+{% if operations_summary.total_operations %}
+    <div class="card soft-card shadow-sm rounded-4 mb-3">
+      <div class="card-body d-flex flex-column flex-md-row flex-wrap align-items-center justify-content-between gap-3">
+        <div class="text-muted">
+          <div class="text-uppercase small mb-1">Extrato rapido</div>
+          <div class="h6 fw-semibold mb-1">Operacoes em andamento</div>
+          <div class="small text-body-secondary">
+            Capital {{ operations_summary.total_capital_label }}
+            {% if operations_summary.pending_operations %}
+              · {{ operations_summary.pending_operations }} aguardando pl
+            {% endif %}
+          </div>
+        </div>
+        <div class="d-flex flex-wrap align-items-center gap-4">
+          <div class="text-center">
+            <div class="text-body-tertiary small mb-1">Total</div>
+            <div class="h4 fw-semibold mb-0">{{ operations_summary.total_operations }}</div>
+          </div>
+          <div class="text-center">
+            <div class="text-body-tertiary small mb-1">Positivas</div>
+            <div class="fw-semibold text-success">{{ operations_summary.positive_operations }}</div>
+          </div>
+          <div class="text-center">
+            <div class="text-body-tertiary small mb-1">Negativas</div>
+            <div class="fw-semibold text-danger">{{ operations_summary.negative_operations }}</div>
+          </div>
+          <div class="text-center">
+            <div class="text-body-tertiary small mb-1">Sem variacao</div>
+            <div class="fw-semibold text-body-secondary">{{ operations_summary.neutral_operations }}</div>
+          </div>
+        </div>
+        <div class="text-center">
+          <div class="text-body-tertiary small mb-1">Lucro / prejuizo</div>
+          <div class="h4 fw-semibold mb-1 {% if operations_summary.net_is_positive %}text-success{% else %}text-danger{% endif %}">
+            {{ operations_summary.net_label }}
+          </div>
+          <div class="small text-body-secondary">Total projetado</div>
+        </div>
+      </div>
+    </div>
+
+
+  {% endif %}
+
+  {% if live_refresh_required %}
+    <div class="alert alert-warning d-flex flex-column flex-md-row align-items-start align-items-md-center justify-content-between gap-2 mb-3">
+      <div class="small text-body-secondary mb-2 mb-md-0">
+        Nao foi possivel obter automaticamente as cotações ao vivo. Atualize manualmente para garantir preços atuais.
+      </div>
+      <a class="btn btn-sm btn-primary" href="{% url 'cotacoes:update_live' %}">
+        Atualizar agora
+      </a>
+    </div>
+  {% endif %}
+
+  {% if operations_cards %}
+
+    <div class="row g-3">
+
+      {% for item in operations_cards %}
+
+        <div class="col-12 col-lg-6 col-xxl-4">
+
+          <div class="card soft-card shadow-sm rounded-4 h-100">
+
+              <div class="card-body d-flex flex-column gap-3">
+
+                <!-- Cabeçalho -->
+
+                <div class="d-flex justify-content-between align-items-start gap-3">
+
+                <div class="d-flex flex-column gap-2">
+                  <div>
+                    <div class="text-uppercase small text-danger fw-semibold">Vender</div>
+                    <div>
+                      <a href="{{ item.sell_link }}"
+                         class="btn btn-link p-0 text-danger fw-semibold"
+                         target="_blank"
+                         rel="noreferrer">
+                        {{ item.operation.sell_asset.ticker }}
+                      </a>
+                    </div>
+                  </div>
+                  <div>
+                    <div class="text-uppercase small text-success fw-semibold">Comprar</div>
+                    <div>
+                      <a href="{{ item.buy_link }}"
+                         class="btn btn-link p-0 text-success fw-semibold"
+                         target="_blank"
+                         rel="noreferrer">
+                        {{ item.operation.buy_asset.ticker }}
+                      </a>
+                    </div>
+                  </div>
+                  <div class="text-body-secondary small">
+                    Aberta em {{ item.operation_date_label }} - Janela {{ item.operation.window }}d
+                  </div>
+                </div>
+                  <div class="d-flex flex-column align-items-end gap-2">
+
+                    <span class="badge {% if item.operation.is_real %}bg-success-subtle text-success{% else %}bg-secondary-subtle text-secondary{% endif %}">
+
+                      {% if item.operation.is_real %}Conta real{% else %}Simulacao{% endif %}
+
+                    </span>
+
+                    <div class="d-flex gap-1">
+                      <a href="{{ item.url }}" class="btn btn-sm btn-outline-primary">Detalhes</a>
+                    </div>
+                  </div>
+
+                </div>
+
+                <!-- Z-score resumo -->
+
+                <div class="d-flex align-items-center gap-2 small">
+
+                  <div>
+
+                    <span class="text-body-tertiary">Z entrada:</span>
+
+                    <span class="fw-semibold">{{ item.entry.zscore_label }}</span>
+
+                    {% if item.entry_reference_label %}
+
+                      <span class="text-body-tertiary">(Snapshot {{ item.entry_reference_label }})</span>
+
+                    {% endif %}
+
+                  </div>
+
+                  <span class="text-body-tertiary">&bull;</span>
+
+                  <div>
+
+                    <span class="text-body-tertiary">Z atual:</span>
+
+                    <span class="fw-semibold">{{ item.current.zscore_label }}</span>
+
+                  </div>
+
+                  <span class="badge {% if item.is_delta_positive %}bg-success-subtle text-success{% else %}bg-danger-subtle text-danger{% endif %} ms-auto">{{ item.z_delta_label }}</span>
+
+                </div>
+
+
+
+                {% if item.current.prices.updated_label %}
+
+                  <div class="text-body-tertiary small">Atualizado {{ item.current.prices.updated_label }}</div>
+
+                {% endif %}
+
+
+
+                <!-- Boleta resumida: Entrada x Atual x P/L -->
+
+                <div class="border rounded-3 p-3 small">
+
+                  <div class="text-uppercase text-body-tertiary fw-semibold small mb-2">Boleta</div>
+
+                  <div class="table-responsive">
+
+                    <table class="table table-sm align-middle mb-0">
+
+                      <thead>
+
+                        <tr class="text-body-tertiary">
+
+                          <th scope="col">Ponta</th>
+
+                          <th scope="col" class="text-end">Qtd</th>
+
+                          <th scope="col" class="text-end">Preço</th>
+
+                          <th scope="col" class="text-end">P/L</th>
+
+                        </tr>
+
+                      </thead>
+
+                      <tbody>
+
+                        <tr class="table-light text-uppercase text-body-tertiary small">
+
+                          <td colspan="4">Entrada</td>
+
+                        </tr>
+
+                        <tr>
+
+                          <td class="text-danger">Vender <span class="fw-semibold">{{ item.operation.sell_asset.ticker }}</span></td>
+
+                          <td class="text-end">{{ item.entry.prices.sell_qty_label }}</td>
+
+                          <td class="text-end">{{ item.entry.prices.sell_price_label }}</td>
+
+                          <td class="text-end">{{ item.entry.prices.sell_total_label }}</td>
+
+                        </tr>
+
+                        <tr>
+
+                        <td class="text-success">Comprar <span class="fw-semibold text-success">{{ item.operation.buy_asset.ticker }}</span></td>
+
+                          <td class="text-end">{{ item.entry.prices.buy_qty_label }}</td>
+
+                          <td class="text-end">{{ item.entry.prices.buy_price_label }}</td>
+
+                          <td class="text-end">{{ item.entry.prices.buy_total_label }}</td>
+
+                        </tr>
+
+                      <tr class="table-active text-uppercase small">
+
+                        <td colspan="3">
+                          <span class="text-body-secondary small">Saldo de entrada</span>
+                        </td>
+                        <td class="text-end">
+                          {% if item.net_direction_label %}
+                            <span class="badge text-capitalize small{% if item.net_direction_label == 'recebe' %} bg-primary-subtle text-primary border border-primary{% elif item.net_direction_label == 'paga' %} bg-danger-subtle text-danger border border-danger{% else %} bg-secondary-subtle text-secondary{% endif %}">
+                              {{ item.net_direction_label }}
+                            </span>
+                          {% endif %}
+                          <span class="fw-semibold{% if item.net_direction_label == 'recebe' %} text-primary{% elif item.net_direction_label == 'paga' %} text-danger{% endif %}">
+                            {{ item.entry.prices.net_label }}
+                          </span>
+                        </td>
+
+                      </tr>
+
+                      <tr class="table-light text-uppercase text-body-tertiary small">
+
+                        <td colspan="4">Atual</td>
+
+                      </tr>
+
+                        <tr>
+
+                          <td class="text-danger">Vender <span class="fw-semibold">{{ item.operation.buy_asset.ticker }}</span></td>
+
+                          <td class="text-end">{{ item.entry.prices.buy_qty_label }}</td>
+
+                          <td class="text-end small">
+                            <div class="fw-semibold">{{ item.current.prices.buy_price_label }}</div>
+                            <div class="text-body-tertiary small">Total {{ item.current.prices.buy_total_label }}</div>
+                          </td>
+
+                          <td class="text-end">{{ item.current.prices.buy_pl_label }}</td>
+
+                        </tr>
+
+                        <tr>
+
+                          <td class="text-success">Comprar <span class="fw-semibold text-success">{{ item.operation.sell_asset.ticker }}</span></td>
+
+                          <td class="text-end">{{ item.entry.prices.sell_qty_label }}</td>
+
+                          <td class="text-end small">
+                            <div class="fw-semibold">{{ item.current.prices.sell_price_label }}</div>
+                            <div class="text-body-tertiary small">Total {{ item.current.prices.sell_total_label }}</div>
+                          </td>
+
+                          <td class="text-end">{{ item.current.prices.sell_pl_label }}</td>
+
+                        </tr>
+
+                      <tr class="table-active text-uppercase small">
+
+                        <td colspan="3">
+                          <span class="text-body-secondary small">Saldo final</span>
+                        </td>
+                        <td class="text-end">
+                          {% if item.net_direction_label %}
+                            <span class="badge text-capitalize small{% if item.net_direction_label == 'recebe' %} bg-primary-subtle text-primary border border-primary{% elif item.net_direction_label == 'paga' %} bg-danger-subtle text-danger border border-danger{% else %} bg-secondary-subtle text-secondary{% endif %}">
+                              {{ item.net_direction_label }}
+                            </span>
+                          {% endif %}
+                          <span class="fw-semibold{% if item.net_direction_label == 'recebe' %} text-primary{% elif item.net_direction_label == 'paga' %} text-danger{% endif %}">
+                            {{ item.current.prices.net_label }}
+                          </span>
+                        </td>
+
+                      </tr>
+
+                      </tbody>
+
+                    </table>
+
+                  </div>
+
+                </div>
+
+
+
+                <!-- Resumo financeiro -->
+
+                <div class="card border rounded-3 p-3 small">
+
+                  <div class="row gy-1">
+
+                    <div class="col-6 d-flex justify-content-between">
+
+                      <span class="text-body-tertiary">Capital alocado</span>
+
+                      <span class="fw-semibold">{{ item.capital_label }}</span>
+
+                    </div>
+
+                    <div class="col-6 d-flex justify-content-between">
+
+                      <span class="text-body-tertiary">Saldo entrada</span>
+
+                      <span class="fw-semibold">{{ item.entry.prices.net_label }}</span>
+
+                    </div>
+
+                    {% if item.pnl_summary %}
+                      <div class="col-12">
+                        <div class="small text-body-secondary d-flex flex-wrap gap-3">
+                          <span>Capital total: {{ item.pnl_summary.capital_total_label }}</span>
+                          <span>Lucro Ponta curta: {{ item.pnl_summary.lucro_short_label }}</span>
+                          <span>Lucro Ponta longa: {{ item.pnl_summary.lucro_long_label }}</span>
+                          <span>Lucro total: {{ item.pnl_summary.lucro_total_label }}</span>
+                          <span>Retorno short: {{ item.pnl_summary.retorno_short_label }}</span>
+                          <span>Retorno long: {{ item.pnl_summary.retorno_long_label }}</span>
+                          <span>Retorno total: {{ item.pnl_summary.retorno_total_label }}</span>
+                        </div>
+                      </div>
+                    {% endif %}
+
+                    <div class="col-6 d-flex justify-content-between">
+
+                      <span class="text-body-tertiary">Resultado</span>
+
+                      <span class="fw-semibold {% if item.pnl_ready %}{% if item.pnl_positive %}text-success{% elif item.pnl_negative %}text-danger{% endif %}{% endif %}">{{ item.current.prices.pl_total_label }}</span>
+
+                    </div>
+
+                    <div class="col-12">
+                      <div class="text-body-secondary small">
+                        Resultado indica o P/L em relacao aos precos de entrada; o Saldo atual mostrado abaixo eh o caixa que voce teria ao fechar agora com os precos ao vivo.
+                      </div>
+                    </div>
+
+                    <div class="col-12">
+
+                      <div class="border rounded-3 px-3 py-2 d-flex align-items-center justify-content-between gap-2 bg-body-tertiary">
+
+                        <div class="text-body-secondary small d-flex align-items-center gap-2">
+
+                          <span>Saldo atual</span>
+
+                          {% if item.net_direction_label %}
+                            <span class="badge text-capitalize
+                              {% if item.net_direction_label == 'recebe' %}
+                                bg-primary-subtle text-primary border border-primary
+                              {% elif item.net_direction_label == 'paga' %}
+                                bg-danger-subtle text-danger border border-danger
+                              {% else %}
+                                bg-secondary-subtle text-secondary
+                              {% endif %}
+                            small">
+                              {{ item.net_direction_label }}
+                            </span>
+                          {% endif %}
+
+                        </div>
+
+                        <div class="fw-semibold {% if item.net_direction_label == 'recebe' %}text-primary{% elif item.net_direction_label == 'paga' %}text-danger{% endif %}">
+                          {{ item.current.prices.net_label }}
+                        </div>
+
+                      </div>
+
+                    </div>
+
+                  </div>
+
+                </div>
+
+              </div>
+
+            </div>
+
+        </div>
+
+      {% endfor %}
+
+    </div>
+
+  {% else %}
+
+    <div class="card soft-card shadow-sm rounded-4">
+
+      <div class="card-body">
+
+        <h2 class="h6 fw-semibold mb-1">Nenhuma operacao em andamento</h2>
+
+        <p class="text-body-secondary small mb-0">
+
+          Monte uma operacao na aba Operacoes para acompanhar os cards aqui.
+
+        </p>
+
+      </div>
+
+    </div>
+
+  {% endif %}
