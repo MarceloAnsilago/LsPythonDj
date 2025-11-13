@@ -74,6 +74,19 @@ def _build_home_operations_payload(request):
             localized = dt_value
         return localized.strftime("%d/%m %H:%M")
 
+    def _format_days_open(dt_value):
+        if not dt_value:
+            return None
+        try:
+            opened = timezone.localtime(dt_value)
+            now = timezone.localtime(timezone.now())
+            delta = now - opened
+            days = delta.days if delta.days >= 0 else 0
+        except Exception:
+            return None
+        label = "dia" if days == 1 else "dias"
+        return f"{days} {label}"
+
     yahoo_price_cache: dict[str, tuple[Decimal | None, bool]] = {}
     manual_refresh_required = False
 
@@ -333,6 +346,7 @@ def _build_home_operations_payload(request):
                 "operation": operation,
                 "url": reverse("core:operacao_encerrar", args=[operation.pk]),
                 "operation_date_label": _fmt_updated(operation.opened_at),
+                "operation_days_label": _format_days_open(operation.opened_at),
                 "capital_label": _fmt_money(operation.capital_allocated),
                 "entry": {
                     "zscore_label": _fmt_metric(entry_zscore),

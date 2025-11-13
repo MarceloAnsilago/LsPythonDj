@@ -107,7 +107,9 @@
                     </div>
                   </div>
                   <div class="text-body-secondary small">
-                    Aberta em {{ item.operation_date_label }} - Janela {{ item.operation.window }}d
+                    Aberta em {{ item.operation_date_label }}
+                    {% if item.operation_days_label %} &bull; {{ item.operation_days_label }}{% endif %}
+                    &bull; Janela {{ item.operation.window }}d
                   </div>
                 </div>
                   <div class="d-flex flex-column align-items-end gap-2">
