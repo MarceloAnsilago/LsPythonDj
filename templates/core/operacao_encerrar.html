@@ -354,10 +354,20 @@
   </div>
   <div class="card border-0 shadow-sm rounded-4 mt-3 bg-body-tertiary">
     <div class="card-body">
-      <h2 class="h6 fw-semibold mb-2">Fluxo de encerramento</h2>
-      <p class="text-body-secondary small mb-0">
-        Esta etapa ainda esta em desenvolvimento. Em breve voce podera registrar a recompra e encerrar a operacao por aqui.
+      <h2 class="h6 fw-semibold mb-2">Excluir operacao</h2>
+      <p class="text-body-secondary small mb-2">
+        Esta acao remove a operacao atual se voce decidir que nao quer mantela aberta.
       </p>
+      <form method="post" class="d-flex flex-column flex-sm-row align-items-stretch align-items-sm-center gap-2">
+        {% csrf_token %}
+        <input type="hidden" name="action" value="delete">
+        <button type="submit" class="btn btn-outline-danger btn-sm w-100 w-sm-auto">
+          Excluir operacao
+        </button>
+        <span class="text-body-secondary small mb-0">
+          Esta acao nao pode ser desfeita.
+        </span>
+      </form>
     </div>
   </div>
   </div>
