@@ -52,6 +52,36 @@ def _user_beta_window(config: UserMetricsConfig | None) -> int:
     return config.beta_window if config else DEFAULT_BETA_WINDOW
 
 
+_BASE_DISPLAY_METRICS = (
+    "adf_pct",
+    "adf_pvalue",
+    "beta",
+    "zscore",
+    "half_life",
+    "corr30",
+    "corr60",
+    "n_samples",
+)
+
+
+def _merge_base_with_scan(pair: Pair, base_window: int) -> dict:
+    cache = pair.scan_cache_json or {}
+    base_payload = cache.get("base") or {}
+    if not base_payload:
+        return base_payload
+    target_window = base_payload.get("window") or pair.chosen_window or base_window
+    scan_rows = (cache.get("scan") or {}).get("rows") or []
+    matching_row = next((row for row in scan_rows if row.get("window") == target_window), None)
+    if not matching_row:
+        return base_payload
+    merged = dict(base_payload)
+    merged["window"] = target_window
+    for key in _BASE_DISPLAY_METRICS:
+        if key in matching_row:
+            merged[key] = matching_row[key]
+    return merged
+
+
 # -------- Base / Grid A --------
 
 
@@ -96,6 +126,9 @@ def pairs_home(request: HttpRequest) -> HttpResponse:
 
     qs = Pair.objects.all().order_by("id")
     pairs = [p for p in qs if (p.scan_cache_json or {}).get("base", {}).get("status") == "ok"]
+
+    for pair in pairs:
+        pair.display_base = _merge_base_with_scan(pair, base_window)
 
     context = {
         "pairs": pairs,

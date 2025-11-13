@@ -26,7 +26,7 @@
 
     <tbody class="table-group-divider">
       {% for pair in pairs %}
-        {% with cw=pair.chosen_window|default:BASE_WINDOW base=pair.scan_cache_json.base %}
+        {% with cw=pair.chosen_window|default:BASE_WINDOW base=pair.display_base %}
         <tr>
           <!-- Par -->
           <td class="sticky-col">
