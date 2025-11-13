@@ -15,7 +15,7 @@ from django.utils.formats import number_format
 from django.views.decorators.http import require_POST
 
 from acoes.models import Asset
-from cotacoes.models import QuoteLive
+from cotacoes.models import QuoteDaily, QuoteLive
 from longshort.services.metrics import (
     compute_pair_window_metrics,
     calcular_proporcao_long_short,
@@ -811,6 +811,18 @@ def operacoes(request):
             if asset_obj:
                 QuoteLive.objects.update_or_create(asset=asset_obj, defaults={"price": yahoo_price})
 
+        if price is None and asset_obj:
+            latest_quote = (
+                QuoteDaily.objects.filter(asset=asset_obj)
+                .values("close", "date")
+                .order_by("-date")
+                .first()
+            )
+            if latest_quote and latest_quote["close"] is not None:
+                price = float(latest_quote["close"])
+                updated_at = latest_quote["date"]
+                price_source = "daily"
+
         info = {
             "role": role,
             "label": "Venda" if role == "sell" else "Compra",
@@ -820,7 +832,13 @@ def operacoes(request):
             "price_label": f"R$ {number_format(price, 2)}" if price is not None else None,
             "source": price_source,
             "source_label": (
-                "Yahoo (agora)" if price_source == "yahoo" else "Yahoo (ultima leitura)" if price_source == "cache" else ""
+                "Yahoo (agora)"
+                if price_source == "yahoo"
+                else "Yahoo (ultima leitura)"
+                if price_source == "cache"
+                else "Histórico (fechamento)"
+                if price_source == "daily"
+                else ""
             ),
             "updated_label": _format_updated(updated_at),
             "error_label": "",
