@@ -6,16 +6,25 @@
 
 <div class="py-3">
 
-  <div class="mb-3">
-
-    <h1 class="h5 fw-semibold mb-1">Operacoes em andamento</h1>
-
-    <p class="text-body-secondary small mb-0">
-
-      Acompanhe as metricas de cada operacao aberta. Clique em um card para revisar ou encerrar.
-
-    </p>
-
+  <div class="d-flex flex-column flex-sm-row align-items-start align-items-sm-center justify-content-between gap-3 mb-3">
+    <div>
+      <h1 class="h5 fw-semibold mb-1">Operacoes em andamento</h1>
+      <p class="text-body-secondary small mb-0">
+        Acompanhe as metricas de cada operacao aberta. Clique em um card para revisar ou encerrar.
+      </p>
+    </div>
+    <div class="d-flex flex-column gap-1 align-items-stretch align-items-sm-end">
+      <button
+        type="button"
+        id="home-refresh-live-btn"
+        class="btn btn-outline-primary btn-sm"
+        data-url="{{ refresh_live_url }}">
+        <span class="spinner-border spinner-border-sm visually-hidden" role="status" aria-hidden="true"></span>
+        <i class="bi bi-arrow-repeat me-1"></i>
+        Atualizar cotações
+      </button>
+      <div id="home-refresh-feedback" class="text-body-secondary small text-end"></div>
+    </div>
   </div>
 
   <div id="home-operations-root" data-url="{{ operations_data_url }}">
@@ -42,36 +51,136 @@
 <script>
 document.addEventListener("DOMContentLoaded", () => {
   const container = document.getElementById("home-operations-root");
-  if (!container) {
-    return;
-  }
-  const url = container.dataset.url;
-  if (!url) {
-    container.innerHTML = '<div class="alert alert-danger small mb-0">URL de dados nao configurada.</div>';
-    return;
-  }
-  fetch(url, {
-    headers: {
-      "X-Requested-With": "XMLHttpRequest",
-    },
-  })
-    .then((response) => {
-      if (!response.ok) {
-        throw new Error("Falha ao carregar as operacoes.");
-      }
-      return response.json();
+  const dataUrl = container?.dataset?.url;
+  const refreshBtn = document.getElementById("home-refresh-live-btn");
+  const feedback = document.getElementById("home-refresh-feedback");
+  let refreshUrl = refreshBtn?.dataset?.url;
+
+  const getCookie = (name) => {
+    const match = document.cookie.match(new RegExp("(^|;)\\s*" + name + "=([^;]+)"));
+    return match ? decodeURIComponent(match[2]) : null;
+  };
+
+  const setFeedback = (text = "", isError = false) => {
+    if (!feedback) {
+      return;
+    }
+    feedback.textContent = text || "";
+    feedback.classList.remove("text-success", "text-danger", "text-body-secondary");
+    if (!text) {
+      feedback.classList.add("text-body-secondary");
+    } else {
+      feedback.classList.add(isError ? "text-danger" : "text-success");
+    }
+  };
+
+  const renderLoading = () => {
+    if (!container) {
+      return;
+    }
+    container.innerHTML = `
+      <div class="card soft-card shadow-sm rounded-4 mb-3">
+        <div class="card-body text-center py-5">
+          <div class="spinner-border" role="status" aria-hidden="true"></div>
+          <div class="small text-body-secondary mt-3">Carregando operacoes em andamento...</div>
+        </div>
+      </div>
+    `;
+  };
+
+  const renderLoadError = () => {
+    if (!container) {
+      return;
+    }
+    container.innerHTML =
+      '<div class="alert alert-warning small mb-0">Nao foi possivel carregar as operacoes agora. Tente novamente em alguns segundos.</div>';
+  };
+
+  const attachAlertRefresh = () => {
+    const alertBtn = document.getElementById("home-refresh-live-alert-btn");
+    if (alertBtn && refreshBtn) {
+      alertBtn.addEventListener("click", () => refreshBtn.click());
+    }
+  };
+
+  const loadOperations = () => {
+    if (!container || !dataUrl) {
+      return;
+    }
+    renderLoading();
+    fetch(dataUrl, {
+      headers: {
+        "X-Requested-With": "XMLHttpRequest",
+      },
+      credentials: "same-origin",
     })
-    .then((payload) => {
-      if (payload && payload.html) {
-        container.innerHTML = payload.html;
-      } else {
-        throw new Error("Resposta invalida.");
-      }
+      .then((response) => {
+        if (!response.ok) {
+          throw new Error("Falha ao carregar as operacoes.");
+        }
+        return response.json();
+      })
+      .then((payload) => {
+        if (payload && payload.html) {
+          container.innerHTML = payload.html;
+          attachAlertRefresh();
+        } else {
+          throw new Error("Resposta invalida.");
+        }
+      })
+      .catch(() => {
+        renderLoadError();
+      });
+  };
+
+  const refreshLiveQuotes = () => {
+    if (!refreshBtn || !refreshUrl) {
+      return;
+    }
+    refreshBtn.disabled = true;
+    const originalContent = refreshBtn.innerHTML;
+    refreshBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-1" role="status" aria-hidden="true"></span>Atualizando...';
+    setFeedback("", false);
+
+    fetch(refreshUrl, {
+      method: "POST",
+      credentials: "same-origin",
+      headers: {
+        "X-CSRFToken": getCookie("csrftoken"),
+        "X-Requested-With": "XMLHttpRequest",
+      },
     })
-    .catch(() => {
-      container.innerHTML =
-        '<div class="alert alert-warning small mb-0">Nao foi possivel carregar as operacoes agora. Tente novamente em alguns segundos.</div>';
+      .then((response) => {
+        if (!response.ok) {
+          throw new Error("Falha ao atualizar cotações.");
+        }
+        return response.json();
+      })
+      .then((data) => {
+        if (!data.ok) {
+          throw new Error(data.detail || "Resposta invalida.");
+        }
+        setFeedback(`Cotações atualizadas: ${data.updated}/${data.total}`, false);
+        loadOperations();
+      })
+      .catch((error) => {
+        console.error(error);
+        setFeedback(error.message || "Falha ao atualizar cotações.", true);
+      })
+      .finally(() => {
+        refreshBtn.disabled = false;
+        refreshBtn.innerHTML = originalContent;
+      });
+  };
+
+  if (refreshBtn) {
+    refreshBtn.addEventListener("click", (ev) => {
+      ev.preventDefault();
+      refreshLiveQuotes();
     });
+  }
+
+  loadOperations();
 });
 </script>
 {% endblock %}

@@ -59,11 +59,11 @@
   {% if live_refresh_required %}
     <div class="alert alert-warning d-flex flex-column flex-md-row align-items-start align-items-md-center justify-content-between gap-2 mb-3">
       <div class="small text-body-secondary mb-2 mb-md-0">
-        Nao foi possivel obter automaticamente as cotações ao vivo. Atualize manualmente para garantir preços atuais.
+        Nao foi possivel obter automaticamente as cotações ao vivo. Use o botão acima ou este aviso para tentar novamente.
       </div>
-      <a class="btn btn-sm btn-primary" href="{% url 'cotacoes:update_live' %}">
+      <button class="btn btn-sm btn-primary" type="button" id="home-refresh-live-alert-btn">
         Atualizar agora
-      </a>
+      </button>
     </div>
   {% endif %}
 

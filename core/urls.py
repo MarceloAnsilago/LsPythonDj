@@ -8,6 +8,11 @@ app_name = "core"
 urlpatterns = [
     path("", login_required(views.home), name="home"),
     path("data/", login_required(views.home_data), name="home_data"),
+    path(
+        "home/live/refresh/",
+        login_required(views.refresh_live_quotes),
+        name="refresh_live_quotes",
+    ),
     path("pares/", login_required(views.stub_page), {"page": "Pares"}, name="pares"),
     path("analise/", login_required(views.stub_page), {"page": "Analise"}, name="analise"),
     path("operacoes/", views.operacoes, name="operacoes"),

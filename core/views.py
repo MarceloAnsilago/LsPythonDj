@@ -12,6 +12,7 @@ from django.template.loader import render_to_string
 from django.urls import reverse
 from django.utils import timezone
 from django.utils.formats import number_format
+from django.views.decorators.http import require_POST
 
 from acoes.models import Asset
 from cotacoes.models import QuoteLive
@@ -20,7 +21,7 @@ from longshort.services.metrics import (
     calcular_proporcao_long_short,
     get_zscore_series,
 )
-from longshort.services.quotes import fetch_latest_price
+from longshort.services.quotes import fetch_latest_price, update_live_quotes
 from pairs.constants import DEFAULT_BASE_WINDOW, DEFAULT_WINDOWS
 from pairs.forms import UserMetricsConfigForm
 from pairs.models import Pair, UserMetricsConfig
@@ -100,9 +101,13 @@ def _build_home_operations_payload(request):
         asset: Asset | None,
         current_price: Decimal | None,
         current_updated,
+        *,
+        force: bool = False,
     ):
         nonlocal manual_refresh_required
         if not asset:
+            return current_price, current_updated
+        if not force and current_price is not None:
             return current_price, current_updated
         ticker_norm = _normalize_ticker(getattr(asset, "ticker", None))
         if not ticker_norm:
@@ -436,6 +441,7 @@ def home(request):
             "current": "home",
             "title": "Inicio - Operacoes em andamento",
             "operations_data_url": reverse("core:home_data"),
+            "refresh_live_url": reverse("core:refresh_live_quotes"),
         },
     )
 
@@ -445,6 +451,26 @@ def home_data(request):
     payload = _build_home_operations_payload(request)
     html = render_to_string("core/_home_operations.html", payload, request=request)
     return JsonResponse({"ok": True, "html": html})
+
+
+@login_required
+@require_POST
+def refresh_live_quotes(request):
+    operations_qs = (
+        Operation.objects.select_related("sell_asset", "buy_asset")
+        .filter(user=request.user, status=Operation.STATUS_OPEN)
+    )
+    assets = {
+        asset
+        for operation in operations_qs
+        for asset in (operation.sell_asset, operation.buy_asset)
+        if asset
+    }
+    try:
+        updated, total = update_live_quotes(list(assets))
+    except Exception as exc:
+        return JsonResponse({"ok": False, "detail": str(exc)}, status=500)
+    return JsonResponse({"ok": True, "updated": updated, "total": total})
 
 
 def stub_page(request, page: str = "Pagina"):
