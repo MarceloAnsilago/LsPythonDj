@@ -2,26 +2,31 @@ name: Scan diário LongShort
 
 on:
   schedule:
-    - cron: "20 21 * * 1-5"   # 18:20 no Brasil = 21:20 UTC
-  workflow_dispatch:          # permite rodar manualmente
+    - cron: "20 21 * * 1-5"   # 18:20 horário de Brasília ≈ 21:20 UTC
+  workflow_dispatch:          # permite rodar manualmente no botão "Run workflow"
 
 jobs:
   scan:
     runs-on: ubuntu-latest
-    
+
+    # Deixa o token e o nome do app disponíveis em TODOS os passos
+    env:
+      FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+      FLY_APP_NAME: ${{ secrets.FLY_APP_NAME }}
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # Aqui o flyctl já é instalado E autenticado usando o FLY_API_TOKEN
-      - name: Instalar e autenticar flyctl
+      - name: Instalar flyctl
         uses: superfly/flyctl-actions/setup-flyctl@v1
-        env:
-          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+
+      - name: Testar autenticação no Fly
+        run: |
+          echo "App configurado: $FLY_APP_NAME"
+          flyctl auth whoami
 
       - name: Rodar scan no Fly.io
-        env:
-          FLY_APP_NAME: ${{ secrets.FLY_APP_NAME }}
         run: |
           echo "Iniciando scan diário para o app $FLY_APP_NAME"
           flyctl ssh console -a "$FLY_APP_NAME" --command "cd /app && python manage.py rodar_scan_diario"
