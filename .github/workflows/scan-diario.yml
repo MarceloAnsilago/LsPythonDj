@@ -1,0 +1,30 @@
+name: Scan diário
+
+on:
+  schedule:
+    # Dispara toda segunda a sexta-feira às 18:20 BRT (UTC-3 = 21:20 UTC)
+    - cron: '20 21 * * 1-5'
+  workflow_dispatch:
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install flyctl
+        uses: superfly/flyctl-actions/setup-flyctl@v1
+        with:
+          version: latest
+
+      - name: Authenticate with Fly
+        run: flyctl auth token
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+
+      - name: Executar scan diário
+        run: |
+          flyctl ssh console -a "${{ secrets.FLY_APP_NAME }}" --command "cd /app && python manage.py rodar_scan_diario"
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
