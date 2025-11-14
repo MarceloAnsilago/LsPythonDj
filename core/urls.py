@@ -26,7 +26,7 @@ urlpatterns = [
         login_required(views.operacao_refresh),
         name="operacao_refresh",
     ),
-    path("encerradas/", login_required(views.stub_page), {"page": "Encerradas"}, name="encerradas"),
+    path("encerradas/", login_required(views.encerradas), name="encerradas"),
     path("config/", views.config, name="config"),
     path("faltantes/", views.faltantes, name="faltantes"),
 ]

@@ -1,0 +1,364 @@
+{% extends "_base.html" %}
+{% block title %}Operações encerradas - LongShortDjango{% endblock %}
+{% block content %}
+<div class="py-3">
+  <div class="mb-3">
+    <h1 class="h5 fw-semibold mb-1">Operações encerradas</h1>
+    <p class="text-body-secondary small mb-0">
+      Painel com métricas de fechamento para acompanhar a performance do histórico.
+    </p>
+  </div>
+
+  <div class="row g-3">
+    <div class="col-sm-6 col-lg-3">
+      <div class="card soft-card shadow-sm rounded-4 h-100">
+        <div class="card-body">
+          <div class="text-uppercase text-body-tertiary small mb-1">Total encerrado</div>
+          <div class="display-6 mb-1 fw-semibold">{{ total_closed_label }}</div>
+          <div class="text-body-secondary small">Operações finalizadas no histórico.</div>
+        </div>
+      </div>
+    </div>
+    <div class="col-sm-6 col-lg-3">
+      <div class="card soft-card shadow-sm rounded-4 h-100">
+        <div class="card-body">
+          <div class="d-flex justify-content-between align-items-center mb-1">
+            <div class="text-uppercase text-body-tertiary small">Taxa de acerto</div>
+            <div class="text-body-secondary small">{{ hit_rate_detail }}</div>
+          </div>
+          <div class="display-6 fw-semibold mb-1">{{ hit_rate_label }}</div>
+          <div class="text-body-secondary small">percentual de fechamentos com resultado positivo.</div>
+        </div>
+      </div>
+    </div>
+    <div class="col-sm-6 col-lg-3">
+      <div class="card soft-card shadow-sm rounded-4 h-100">
+        <div class="card-body">
+          <div class="text-uppercase text-body-tertiary small mb-1">Dias médios</div>
+          <div class="display-6 fw-semibold mb-1">{{ avg_days_label }}</div>
+          <div class="text-body-secondary small">Tempo médio entre abertura e fechamento.</div>
+        </div>
+      </div>
+    </div>
+    <div class="col-sm-6 col-lg-3">
+      <div class="card soft-card shadow-sm rounded-4 h-100">
+        <div class="card-body">
+          <div class="text-uppercase text-body-tertiary small mb-1">Lucro / Prejuízo</div>
+          <div class="display-6 fw-semibold mb-1">{{ profit_loss_ratio_label }}</div>
+          <div class="text-body-secondary small">
+            {{ profit_total_label }} · {{ loss_total_label }} · {{ net_total_label }}
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="row g-3 mt-3">
+    <div class="col-lg-6">
+      <div class="card soft-card shadow-sm rounded-4 h-100">
+        <div class="card-body">
+          <div class="d-flex justify-content-between align-items-center mb-2">
+            <div>
+              <h2 class="h6 fw-semibold mb-1">Lucro / prejuízo por fechamento</h2>
+              <div class="text-body-secondary small">Variação acumulada por data de encerramento.</div>
+            </div>
+            <span class="badge border border-primary-subtle text-primary small">Histórico</span>
+          </div>
+          {% if chart_pnl_series %}
+            <div class="position-relative" style="min-height: 220px;">
+              <canvas id="encerradasPnlChart" height="220"></canvas>
+              {{ chart_pnl_series|json_script:"encerradas-pnl-series" }}
+            </div>
+          {% else %}
+            <div class="text-center text-body-secondary small py-5">
+              Sem dados de lucro/prejuízo para mostrar no gráfico.
+            </div>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+    <div class="col-lg-6">
+      <div class="card soft-card shadow-sm rounded-4 h-100">
+        <div class="card-body">
+          <div class="d-flex justify-content-between align-items-center mb-2">
+            <div>
+              <h2 class="h6 fw-semibold mb-1">Dias médios por fechamento</h2>
+              <div class="text-body-secondary small">Consistência do tempo de operação.</div>
+            </div>
+            <span class="badge border border-success-subtle text-success small">Tempo</span>
+          </div>
+          {% if chart_days_open_series %}
+            <div class="position-relative" style="min-height: 220px;">
+              <canvas id="encerradasDaysChart" height="220"></canvas>
+              {{ chart_days_open_series|json_script:"encerradas-days-series" }}
+            </div>
+          {% else %}
+            <div class="text-center text-body-secondary small py-5">
+              Ainda não há dados de dias médios para exibir.
+            </div>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="row g-3 mt-3">
+    <div class="col-lg-6">
+      <div class="card soft-card shadow-sm rounded-4 h-100">
+        <div class="card-body">
+          <div class="d-flex justify-content-between align-items-center mb-2">
+            <div>
+              <h2 class="h6 fw-semibold mb-1">Lucro x prejuízo</h2>
+              <div class="text-body-secondary small">Comparativo total acumulado.</div>
+            </div>
+            <span class="badge border border-info-subtle text-info small">Totais</span>
+          </div>
+          <div class="position-relative" style="min-height: 220px;">
+            <canvas id="encerradasProfitLossChart" height="220"></canvas>
+            {{ chart_profit_loss|json_script:"encerradas-profit-loss" }}
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="col-lg-6">
+      <div class="card soft-card shadow-sm rounded-4 h-100">
+        <div class="card-body">
+          <div class="d-flex justify-content-between align-items-center mb-2">
+            <div>
+              <h2 class="h6 fw-semibold mb-1">Últimos fechamentos</h2>
+              <div class="text-body-secondary small">Acompanhe os últimos encerramentos com resultado.</div>
+            </div>
+            <span class="badge border border-secondary-subtle text-secondary small">Histórico</span>
+          </div>
+          <ul class="list-group list-group-flush">
+            {% for op in recent_operations %}
+              <li class="list-group-item px-0 py-2 border-0">
+                <div class="d-flex justify-content-between align-items-center">
+                  <div>
+                    <div class="fw-semibold">{{ op.pair }}</div>
+                    <div class="text-body-secondary small">{{ op.closed_on }} · {{ op.days_label }}</div>
+                  </div>
+                  <div class="text-end">
+                    <div class="fw-semibold">{{ op.result_label }}</div>
+                    {% if op.has_result %}
+                      <span class="badge text-capitalize small{% if op.result_direction == 'recebe' %} bg-primary-subtle text-primary{% elif op.result_direction == 'paga' %} bg-danger-subtle text-danger{% endif %}">
+                        {% if op.result_direction %}{{ op.result_direction }}{% endif %}
+                      </span>
+                    {% else %}
+                      <div class="text-body-secondary small">Sem dados</div>
+                    {% endif %}
+                  </div>
+                </div>
+              </li>
+            {% empty %}
+              <li class="list-group-item border-0 text-body-secondary small">
+                Ainda não há operações encerradas para mostrar aqui.
+              </li>
+            {% endfor %}
+          </ul>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="row g-3 mt-3">
+    <div class="col-lg-8">
+      <div class="card soft-card shadow-sm rounded-4 h-100">
+        <div class="card-body">
+          <div class="d-flex justify-content-between align-items-center mb-2">
+            <div>
+              <h2 class="h6 fw-semibold mb-1">Histórico de pares</h2>
+              <div class="text-body-secondary small">Acertos e erros das operações encerradas.</div>
+            </div>
+            <span class="badge border border-secondary-subtle text-secondary small">Grade</span>
+          </div>
+          <div class="table-responsive">
+            <table class="table mb-0">
+              <thead>
+                <tr class="text-body-secondary small text-uppercase">
+                  <th>Par</th>
+                  <th>Fechamento</th>
+                  <th>Resultado</th>
+                  <th class="text-center">Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for op in operation_grid %}
+                  <tr>
+                    <td class="fw-semibold">{{ op.pair }}</td>
+                    <td class="text-body-secondary small">{{ op.closed_on }}</td>
+                    <td>{{ op.result_label }}</td>
+                    <td class="text-center">
+                      <span class="badge text-capitalize small
+                        {% if op.status_type == 'positive' %}bg-success-subtle text-success{% elif op.status_type == 'negative' %}bg-danger-subtle text-danger{% else %}bg-secondary-subtle text-secondary{% endif %}">
+                        {{ op.status_label }}
+                      </span>
+                    </td>
+                  </tr>
+                {% empty %}
+                  <tr>
+                    <td colspan="4" class="text-body-secondary small text-center py-3">
+                      Nenhuma operação encerrada disponível.
+                    </td>
+                  </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="col-lg-4">
+      <div class="card soft-card shadow-sm rounded-4 h-100">
+        <div class="card-body d-flex flex-column gap-3">
+          <div class="d-flex justify-content-between align-items-center">
+            <div>
+              <h2 class="h6 fw-semibold mb-1">Maior sequência</h2>
+              <div class="text-body-secondary small">Comparativo de streaks positivos e negativos.</div>
+            </div>
+            <span class="badge border border-info-subtle text-info small">Streak</span>
+          </div>
+          <div class="position-relative" style="min-height: 220px;">
+            <canvas id="encerradasStreakChart" height="220"></canvas>
+            {{ chart_streak_series|json_script:"encerradas-streak-series" }}
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <script>
+    (function () {
+      if (typeof Chart === "undefined") {
+        return;
+      }
+
+      function parseDataset(id) {
+        const dataset = document.getElementById(id);
+        if (!dataset) {
+          return [];
+        }
+        try {
+          return JSON.parse(dataset.textContent || "[]");
+        } catch (err) {
+          console.error("Falha ao ler dados chart", err);
+          return [];
+        }
+      }
+
+      function buildLine(canvasId, datasetId, color, labelText) {
+        const canvas = document.getElementById(canvasId);
+        const data = parseDataset(datasetId);
+        if (!canvas || !data.length) {
+          return;
+        }
+        const ctx = canvas.getContext("2d");
+        if (!ctx) {
+          return;
+        }
+        const labels = data.map((item) => item.label);
+        const values = data.map((item) => item.value);
+        const fillColor = `${color}33`;
+        new Chart(ctx, {
+          type: "line",
+          data: {
+            labels,
+            datasets: [
+              {
+                label: labelText,
+                data: values,
+                borderColor: color,
+                backgroundColor: fillColor,
+                tension: 0.3,
+                pointRadius: 3,
+                fill: true,
+              },
+            ],
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            scales: {
+              x: {
+                grid: { display: false },
+              },
+              y: {
+                grid: { color: "rgba(0,0,0,0.05)" },
+              },
+            },
+            plugins: {
+              legend: { display: false },
+              tooltip: {
+                callbacks: {
+                  label(context) {
+                    return `${context.dataset.label}: R$ ${Number(context.parsed.y).toFixed(2)}`;
+                  },
+                },
+              },
+            },
+          },
+        });
+      }
+
+      function buildBar(canvasId, datasetId, colors) {
+        const canvas = document.getElementById(canvasId);
+        const data = parseDataset(datasetId);
+        if (!canvas || !data.length) {
+          return;
+        }
+        const ctx = canvas.getContext("2d");
+        if (!ctx) {
+          return;
+        }
+        const labels = data.map((item) => item.label);
+        const values = data.map((item) => item.value);
+        new Chart(ctx, {
+          type: "bar",
+          data: {
+            labels,
+            datasets: [
+              {
+                label: "Totais",
+                data: values,
+                backgroundColor: colors,
+                borderRadius: 6,
+              },
+            ],
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            scales: {
+              x: {
+                grid: { display: false },
+              },
+              y: {
+                grid: { color: "rgba(0,0,0,0.05)" },
+                ticks: { callback(value) { return `R$ ${Number(value).toFixed(0)}`; } },
+              },
+            },
+            plugins: {
+              legend: { display: false },
+              tooltip: {
+                callbacks: {
+                  label(context) {
+                    return `R$ ${Number(context.parsed.y).toFixed(2)}`;
+                  },
+                },
+              },
+            },
+          },
+        });
+      }
+
+      buildLine("encerradasPnlChart", "encerradas-pnl-series", "#0d6efd", "Lucro diário");
+      buildLine("encerradasDaysChart", "encerradas-days-series", "#198754", "Dias médios");
+      buildBar("encerradasProfitLossChart", "encerradas-profit-loss", ["#19875480", "#dc354580"]);
+      buildBar("encerradasStreakChart", "encerradas-streak-series", ["#0d6efd80", "#dc354580"]);
+    })();
+  </script>
+{% endblock %}

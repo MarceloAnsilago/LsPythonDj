@@ -1,5 +1,6 @@
 ﻿from __future__ import annotations
 
+from collections import defaultdict
 from decimal import Decimal, InvalidOperation
 from types import SimpleNamespace
 
@@ -505,6 +506,217 @@ def stub_page(request, page: str = "Pagina"):
             "title": page,
         },
     )
+
+
+def _decimal_from_value(value) -> Decimal | None:
+    if value is None:
+        return None
+    try:
+        return Decimal(str(value))
+    except (TypeError, ValueError, InvalidOperation):
+        return None
+
+
+@login_required
+def encerradas(request):
+    closed_qs = (
+        Operation.objects.select_related("sell_asset", "buy_asset")
+        .filter(user=request.user, status=Operation.STATUS_CLOSED)
+        .order_by("-updated_at")
+    )
+    total_closed = closed_qs.count()
+    closing_price_cache: dict[tuple[int, object], Decimal | None] = {}
+
+    def _fetch_price(asset_id: int | None, target_date):
+        if not asset_id or not target_date:
+            return None
+        cache_key = (asset_id, target_date)
+        if cache_key in closing_price_cache:
+            return closing_price_cache[cache_key]
+        quote = (
+            QuoteDaily.objects.filter(asset_id=asset_id, date__lte=target_date)
+            .order_by("-date")
+            .values_list("close", flat=True)
+            .first()
+        )
+        price = _decimal_from_value(quote)
+        closing_price_cache[cache_key] = price
+        return price
+
+    days_total = 0.0
+    days_count = 0
+    hit_count = 0
+    pnl_valid = 0
+    profit_sum = Decimal("0")
+    loss_sum = Decimal("0")
+    pnl_by_date: dict[object, Decimal] = defaultdict(lambda: Decimal("0"))
+    days_by_date: dict[object, list[float]] = defaultdict(list)
+    recent_operations: list[dict[str, object]] = []
+    grid_operations: list[dict[str, object]] = []
+    MAX_GRID = 12
+    closing_records: list[tuple[object, Decimal | None]] = []
+    MAX_RECENT = 6
+
+    for operation in closed_qs:
+        closing_dt = operation.updated_at or operation.opened_at
+        if not closing_dt:
+            continue
+        try:
+            closing_local = timezone.localtime(closing_dt)
+        except Exception:
+            closing_local = closing_dt
+        try:
+            opened_local = timezone.localtime(operation.opened_at) if operation.opened_at else closing_local
+        except Exception:
+            opened_local = operation.opened_at or closing_local
+        days_open = 0.0
+        if closing_local and opened_local:
+            try:
+                delta = closing_local - opened_local
+                days_open = max(delta.total_seconds() / 86400, 0.0)
+            except Exception:
+                days_open = 0.0
+        days_total += days_open
+        days_count += 1
+        closing_date = closing_local.date() if hasattr(closing_local, "date") else None
+        if closing_date:
+            days_by_date[closing_date].append(days_open)
+        sell_close_price = _fetch_price(operation.sell_asset_id, closing_date)
+        buy_close_price = _fetch_price(operation.buy_asset_id, closing_date)
+        pl_value: Decimal | None = None
+        if sell_close_price is not None and buy_close_price is not None:
+            sell_qty = Decimal(operation.sell_quantity)
+            buy_qty = Decimal(operation.buy_quantity)
+            try:
+                sell_pl = (operation.sell_price - sell_close_price) * sell_qty
+                buy_pl = (buy_close_price - operation.buy_price) * buy_qty
+                pl_value = sell_pl + buy_pl
+            except (TypeError, ValueError, InvalidOperation):
+                pl_value = None
+        closing_records.append((closing_local, pl_value))
+        if pl_value is not None:
+            pnl_valid += 1
+            if pl_value >= 0:
+                hit_count += 1
+                profit_sum += pl_value
+            else:
+                loss_sum += -pl_value
+            if closing_date:
+                pnl_by_date[closing_date] += pl_value
+        if len(grid_operations) < MAX_GRID:
+            grid_operations.append(
+                {
+                    "pair": operation.formatted_pair(),
+                    "closed_on": closing_local.strftime("%d/%m/%Y") if closing_local else "--",
+                    "status_label": "Acerto" if pl_value is not None and pl_value >= 0 else ("Erro" if pl_value is not None else "Sem dados"),
+                    "status_type": "positive" if pl_value is not None and pl_value >= 0 else ("negative" if pl_value is not None else None),
+                    "result_label": _format_money(pl_value) if pl_value is not None else "--",
+                }
+            )
+        if len(recent_operations) < MAX_RECENT:
+            recent_operations.append(
+                {
+                    "pair": operation.formatted_pair(),
+                    "closed_on": closing_local.strftime("%d/%m/%Y") if closing_local else "--",
+                    "days_label": f"{days_open:.1f} dias",
+                    "result_label": _format_money(pl_value) if pl_value is not None else "Sem dados",
+                    "result_direction": "recebe"
+                    if pl_value is not None and pl_value >= 0
+                    else ("paga" if pl_value is not None else ""),
+                    "has_result": pl_value is not None,
+                }
+            )
+
+    hit_rate_label = "--"
+    hit_rate_detail = "Ainda não há fechamentos com resultado calculado."
+    if pnl_valid:
+        pct = round((hit_count / pnl_valid) * 100)
+        hit_rate_label = f"{pct}%"
+        hit_rate_detail = f"{hit_count} de {pnl_valid} fechamentos positivos"
+
+    avg_days_label = "--"
+    if days_count:
+        avg_days_label = f"{(days_total / days_count):.1f} dias"
+
+    ratio_label = "--"
+    if loss_sum > Decimal("0"):
+        try:
+            ratio = float(profit_sum / loss_sum)
+            ratio_label = f"{ratio:.2f}x"
+        except (TypeError, ValueError, InvalidOperation):
+            ratio_label = "--"
+    elif profit_sum > Decimal("0"):
+        ratio_label = "\u221e"
+
+    net_total = profit_sum - loss_sum
+    pnl_series = [
+        {"label": closing_date.strftime("%d/%m"), "value": float(total)}
+        for closing_date, total in sorted(pnl_by_date.items())
+    ]
+    days_series = []
+    for closing_date in sorted(days_by_date):
+        values = days_by_date[closing_date]
+        if not values:
+            continue
+        avg = sum(values) / len(values)
+        days_series.append({"label": closing_date.strftime("%d/%m"), "value": round(avg, 1)})
+    profit_loss_series = [
+        {"label": "Lucro", "value": float(profit_sum)},
+        {"label": "Prejuízo", "value": float(loss_sum)},
+    ]
+
+    sorted_records = sorted(
+        (rec for rec in closing_records if rec[0] is not None),
+        key=lambda item: item[0],
+    )
+    positive_streak = 0
+    negative_streak = 0
+    current_type = None
+    current_length = 0
+    for _, pl_value in sorted_records:
+        if pl_value is None:
+            current_type = None
+            current_length = 0
+            continue
+        run_type = "positive" if pl_value >= 0 else "negative"
+        if run_type == current_type:
+            current_length += 1
+        else:
+            current_type = run_type
+            current_length = 1
+        if run_type == "positive" and current_length > positive_streak:
+            positive_streak = current_length
+        if run_type == "negative" and current_length > negative_streak:
+            negative_streak = current_length
+
+    streak_series = [
+        {"label": "Maior sequência positiva", "value": positive_streak},
+        {"label": "Maior sequência negativa", "value": negative_streak},
+    ]
+
+    return render(
+        request,
+        "core/encerradas.html",
+        {
+            "current": "encerradas",
+            "title": "Operações encerradas",
+            "total_closed_label": number_format(total_closed, 0),
+            "hit_rate_label": hit_rate_label,
+            "hit_rate_detail": hit_rate_detail,
+            "avg_days_label": avg_days_label,
+            "profit_total_label": _format_money(profit_sum),
+            "loss_total_label": _format_money(loss_sum),
+            "net_total_label": _format_money(net_total),
+            "profit_loss_ratio_label": ratio_label,
+            "recent_operations": recent_operations,
+        "chart_pnl_series": pnl_series,
+        "chart_days_open_series": days_series,
+        "chart_profit_loss": profit_loss_series,
+        "chart_streak_series": streak_series,
+        "operation_grid": grid_operations,
+        "has_operations": total_closed > 0,
+    },
+)
 
 
 def _format_detail_updated(dt_value) -> str:
