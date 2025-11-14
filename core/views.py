@@ -370,7 +370,16 @@ def _build_home_operations_payload(request):
             }
         )
 
-    operations_cards.sort(key=lambda card: (card.get("current_zscore") is None, card.get("current_zscore") or 0.0))
+    def _card_zscore_sort_value(card):
+        value = card.get("current_zscore")
+        if value is None:
+            return float("inf")
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return float("inf")
+
+    operations_cards.sort(key=lambda card: (card.get("current_zscore") is None, abs(_card_zscore_sort_value(card))))
 
     total_operations = len(operations_cards)
     stats_capital = Decimal("0")

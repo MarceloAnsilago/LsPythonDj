@@ -8,6 +8,7 @@ import pandas as pd
 import requests
 import yfinance as yf
 from django.db.models import Max
+from django.utils import timezone
 
 from cotacoes.models import QuoteDaily, MissingQuoteLog
 
@@ -87,6 +88,41 @@ def _yf_close_series(df: Optional[pd.DataFrame]) -> Optional[pd.Series]:
     return s
 
 
+CLOSE_UPDATE_TOLERANCE = 1e-6
+
+
+def _safe_float(value: object) -> float | None:
+    try:
+        if value is None:
+            return None
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _series_value_for_date(series: Optional[pd.Series], target_date) -> float | None:
+    if series is None or target_date is None:
+        return None
+    val = series.get(target_date)
+    if pd.isna(val):
+        return None
+    return val
+
+
+def _update_daily_quote_close_if_changed(asset, quote_date, new_close) -> bool:
+    new_value = _safe_float(new_close)
+    if new_value is None:
+        return False
+    queryset = QuoteDaily.objects.filter(asset=asset, date=quote_date)
+    existing_close = queryset.values_list("close", flat=True).first()
+    if existing_close is None:
+        return False
+    if abs(existing_close - new_value) <= CLOSE_UPDATE_TOLERANCE:
+        return False
+    queryset.update(close=new_value)
+    return True
+
+
 def fetch_stooq_df(ticker: str) -> Optional[pd.DataFrame]:
     """
     Retorna DataFrame diário do Stooq para ticker B3 (ex: 'PETR4') ou None.
@@ -126,6 +162,7 @@ def bulk_update_quotes(
     """
     assets = list(assets)
     total_assets = len(assets)
+    today = timezone.localdate()
     if progress_cb:
         progress_cb("start", 0, total_assets, "starting", 0)
 
@@ -163,6 +200,10 @@ def bulk_update_quotes(
             s_close = _yf_close_series(df_yf)
             if s_close is not None:
                 had_any_source_data = True
+                if last_dt == today:
+                    today_price = _series_value_for_date(s_close, today)
+                    if today_price is not None:
+                        _update_daily_quote_close_if_changed(asset, today, today_price)
                 s = s_close
                 if last_dt:
                     s = s[s.index > last_dt]
@@ -187,6 +228,10 @@ def bulk_update_quotes(
                     had_any_source_data = True
                     s = df_stq["Close"].dropna().copy()
                     s.index = pd.to_datetime(s.index).date
+                    if last_dt == today:
+                        today_price = _series_value_for_date(s, today)
+                        if today_price is not None:
+                            _update_daily_quote_close_if_changed(asset, today, today_price)
                     if last_dt:
                         s = s[s.index > last_dt]
                     if not s.empty:

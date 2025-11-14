@@ -15,11 +15,11 @@
   <div class="row g-4">
     <!-- Coluna: Prévia do logo (sem texto) -->
     <div class="col-12 col-md-3">
-      <div class="card text-center shadow-sm rounded-3">
-        <div class="card-body">
+      <div class="d-flex align-items-center justify-content-center rounded-3 shadow-sm border border-1 bg-body-tertiary" style="height: 150px;">
+        <div class="bg-white d-inline-flex align-items-center justify-content-center rounded border border-1 p-2" style="width: 104px; height: 104px;">
           <img id="logoPreview"
-               class="rounded"
-               width="72" height="72" alt="logo preview"
+               class="img-fluid"
+               width="88" height="88" alt="logo preview"
                src="{% static 'img/ativos/' %}{{ form.instance.logo_prefix|default_if_none:'sem_logo'|upper }}.jpg"
                data-png="{% static 'img/ativos/' %}{{ form.instance.logo_prefix|default_if_none:'sem_logo'|upper }}.png"
                data-fallback="{% static 'img/ativos/sem_logo.png' %}">
