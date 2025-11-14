@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import date, timedelta
+from urllib.parse import quote_plus
 import pandas as pd
 
 from django.contrib import messages
@@ -213,12 +214,21 @@ def faltantes_detail(request, ticker: str):
     # reescaneia só esse ativo pra pegar a lista atualizada
     missing = find_missing_dates_for_asset(asset)
     # monta linhas com link pro Yahoo e ação de tentar baixar
+    google_query = quote_plus(f"{ticker.upper()} SA")
+    google_url = f"https://www.google.com/search?q={google_query}"
     rows = []
     for d in missing:
         period1 = _date_to_unix(d)  # usa helper do services (ou recrie aqui)
         period2 = _date_to_unix(d + timedelta(days=1))
         yahoo_url = f"https://finance.yahoo.com/quote/{ticker.upper()}.SA/history?period1={period1}&period2={period2}"
-        rows.append({"date": d, "yahoo_url": yahoo_url})
+        rows.append(
+            {
+                "date": d,
+                "date_iso": d.isoformat(),
+                "yahoo_url": yahoo_url,
+                "google_url": google_url,
+            }
+        )
     ctx = {
         "current": "faltantes",
         "ticker": ticker.upper(),
