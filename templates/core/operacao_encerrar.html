@@ -396,6 +396,14 @@
         if (!ctx) {
           return;
         }
+        const gradient = ctx.createLinearGradient(0, 0, 0, canvas.height);
+        gradient.addColorStop(0, 'rgba(13, 110, 253, 0.25)');
+        gradient.addColorStop(1, 'rgba(13, 110, 253, 0)');
+        const referenceLines = [
+          { value: 2, color: '#f55f00', label: '+2 desvio' },
+          { value: 0, color: '#6c757d', label: '0' },
+          { value: -2, color: '#0d6efd', label: '-2 desvio' },
+        ];
         new Chart(ctx, {
           type: 'line',
           data: {
@@ -403,36 +411,47 @@
             datasets: [
               {
                 label: 'Z-score',
-                data: values,
-                borderColor: '#0d6efd',
-                backgroundColor: 'rgba(13, 110, 253, 0.15)',
-                tension: 0.25,
-                fill: true,
-                pointRadius: 2,
-                pointHoverRadius: 4,
-              },
-            ],
-          },
-          options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            scales: {
-              x: { display: true, title: { display: true, text: 'Periodo' } },
-              y: { display: true, title: { display: true, text: 'Z-score' } },
+                  data: values,
+                  borderColor: '#0b47d2',
+                  backgroundColor: gradient,
+                  borderWidth: 3,
+                  tension: 0.25,
+                  fill: true,
+                  pointRadius: 0,
+                  pointHoverRadius: 5,
+                },
+                ...referenceLines.map((line) => ({
+                  label: line.label,
+                  data: labels.map(() => line.value),
+                  borderColor: line.color,
+                  borderWidth: 1.5,
+                  borderDash: [6, 6],
+                  pointRadius: 0,
+                  fill: false,
+                  tension: 0,
+                })),
+              ],
             },
-            plugins: {
-              legend: { display: false },
-              tooltip: {
-                callbacks: {
-                  label(context) {
-                    return `Z: ${context.formattedValue}`;
+            options: {
+              responsive: true,
+              maintainAspectRatio: false,
+              scales: {
+                x: { display: true, title: { display: true, text: 'Periodo' } },
+                y: { display: true, title: { display: true, text: 'Z-score' } },
+              },
+              plugins: {
+                legend: { display: false },
+                tooltip: {
+                  callbacks: {
+                    label(context) {
+                      return `Z: ${context.formattedValue}`;
+                    },
                   },
                 },
               },
             },
-          },
-        });
-      })();
+          });
+        })();
     </script>
     <script>
       (function () {

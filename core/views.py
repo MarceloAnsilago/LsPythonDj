@@ -56,6 +56,14 @@ def _build_home_operations_payload(request):
         except (TypeError, ValueError):
             return "--"
 
+    def _fmt_ratio(value: Decimal | float | None, digits: int = 2) -> str:
+        if value is None:
+            return "--"
+        try:
+            return f"{float(value):.{digits}f}"
+        except (TypeError, ValueError):
+            return "--"
+
     def _to_decimal(value: Decimal | float | int | None) -> Decimal:
         if value is None:
             return Decimal("0")
@@ -389,17 +397,22 @@ def _build_home_operations_payload(request):
     stats_negative = 0
     stats_neutral = 0
     stats_pending = 0
+    stats_gross_profit = Decimal("0")
+    stats_gross_loss = Decimal("0")
     for card in operations_cards:
         stats_capital += _to_decimal(card["operation"].capital_allocated)
         pl_value = card.get("pl_total")
         if pl_value is None:
             stats_pending += 1
             continue
-        stats_net_total += pl_value
-        if pl_value > 0:
+        pl_decimal = _to_decimal(pl_value)
+        stats_net_total += pl_decimal
+        if pl_decimal > 0:
             stats_positive += 1
-        elif pl_value < 0:
+            stats_gross_profit += pl_decimal
+        elif pl_decimal < 0:
             stats_negative += 1
+            stats_gross_loss += abs(pl_decimal)
         else:
             stats_neutral += 1
 
@@ -419,6 +432,10 @@ def _build_home_operations_payload(request):
             return "--"
         return f"{int((value / resolved_operations) * 100)}%"
 
+    profit_factor_value = (
+        stats_gross_profit / stats_gross_loss if stats_gross_loss > Decimal("0") else None
+    )
+
     operations_summary = {
         "total_operations": total_operations,
         "positive_operations": stats_positive,
@@ -428,6 +445,8 @@ def _build_home_operations_payload(request):
         "net_label": _fmt_money(stats_net_total),
         "net_value": stats_net_total,
         "net_is_positive": stats_net_total >= 0,
+        "profit_factor_label": _fmt_ratio(profit_factor_value),
+        "profit_factor_value": profit_factor_value,
         "total_capital_label": _fmt_money(stats_capital),
         "total_operations_label": _fmt_int(total_operations),
         "positive_operations_label": _fmt_int(stats_positive),
