@@ -13,15 +13,11 @@ urlpatterns = [
     path("acoes/", include("acoes.urls")),
     path("cotacoes/", include("cotacoes.urls")),
 
-    # 🔽 PARES ANTES DO CORE
     path("pares/", include(("pairs.urls", "pairs"), namespace="pairs")),
 
-    # 🔽 LOGIN / CONTAS
-    path("accounts/", include("accounts.urls")),  # 👈 ADICIONADO
+    path("accounts/", include("accounts.urls")),
 
-    # ✅ HEALTH CHECK SEM LOGIN
     path("health/", healthcheck, name="healthcheck"),
 
-    # 🔽 CORE POR ÚLTIMO (catch-all da home e demais páginas gerais)
     path("", include("core.urls")),
 ]

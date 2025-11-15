@@ -12,57 +12,38 @@
     <div class="alert alert-danger">{{ form.non_field_errors }}</div>
   {% endif %}
 
-  <div class="row g-4">
-    <!-- Coluna: Prévia do logo (sem texto) -->
-    <div class="col-12 col-md-3">
-      <div class="d-flex align-items-center justify-content-center rounded-3 shadow-sm border border-1 bg-body-tertiary" style="height: 150px;">
-        <div class="bg-white d-inline-flex align-items-center justify-content-center rounded border border-1 p-2" style="width: 104px; height: 104px;">
-          <img id="logoPreview"
-               class="img-fluid"
-               width="88" height="88" alt="logo preview"
-               src="{% static 'img/ativos/' %}{{ form.instance.logo_prefix|default_if_none:'sem_logo'|upper }}.jpg"
-               data-png="{% static 'img/ativos/' %}{{ form.instance.logo_prefix|default_if_none:'sem_logo'|upper }}.png"
-               data-fallback="{% static 'img/ativos/sem_logo.png' %}">
-        </div>
-      </div>
+  <div class="row g-3">
+    <div class="col-12 col-md-4">
+      <label class="form-label" for="{{ form.ticker.id_for_label }}">Ticker</label>
+      {{ form.ticker|add_class:"form-control text-uppercase" }}
+      {{ form.ticker.errors }}
     </div>
 
-    <!-- Coluna: Campos -->
-    <div class="col-12 col-md-9">
-      <div class="row g-3">
-        <div class="col-12 col-md-3">
-          <label class="form-label" for="{{ form.ticker.id_for_label }}">Ticker</label>
-          {{ form.ticker|add_class:"form-control" }}
-          {{ form.ticker.errors }}
-        </div>
-
-        <div class="col-12 col-md-4">
-          <label class="form-label" for="{{ form.ticker_yf.id_for_label }}">Yahoo Finance</label>
-          {{ form.ticker_yf|add_class:"form-control" }}
-          <div class="form-text">Ex.: PETR4.SA (adiciona <code>.SA</code> se faltar)</div>
-          {{ form.ticker_yf.errors }}
-        </div>
-
-        <div class="col-12 col-md-5">
-          <label class="form-label" for="{{ form.name.id_for_label }}">Nome</label>
-          {{ form.name|add_class:"form-control" }}
-          {{ form.name.errors }}
-        </div>
-
-        <div class="col-12 col-md-3 d-flex align-items-center">
-          <div class="form-check mt-4">
-            {{ form.is_active|add_class:"form-check-input" }}
-            <label class="form-check-label ms-1" for="{{ form.is_active.id_for_label }}">Ativa</label>
-          </div>
-          {{ form.is_active.errors }}
-        </div>
-      </div>
-
-      <div class="d-flex gap-2 mt-3">
-        <button class="btn btn-primary">Salvar</button>
-        <a class="btn btn-outline-secondary" href="{% url 'acoes:lista' %}">Cancelar</a>
-      </div>
+    <div class="col-12 col-md-4">
+      <label class="form-label" for="{{ form.ticker_yf.id_for_label }}">Yahoo Finance</label>
+      {{ form.ticker_yf|add_class:"form-control text-uppercase" }}
+      <div class="form-text">Adiciona <code>.SA</code> automaticamente quando necessário.</div>
+      {{ form.ticker_yf.errors }}
     </div>
+
+    <div class="col-12 col-md-4">
+      <label class="form-label" for="{{ form.name.id_for_label }}">Nome</label>
+      {{ form.name|add_class:"form-control" }}
+      {{ form.name.errors }}
+    </div>
+
+    <div class="col-12 d-flex align-items-center gap-3">
+      <div class="form-check">
+        {{ form.is_active|add_class:"form-check-input" }}
+        <label class="form-check-label ms-1" for="{{ form.is_active.id_for_label }}">Ativa</label>
+      </div>
+      {{ form.is_active.errors }}
+    </div>
+  </div>
+
+  <div class="d-flex gap-2 mt-4">
+    <button class="btn btn-primary">Salvar</button>
+    <a class="btn btn-outline-secondary" href="{% url 'acoes:lista' %}">Cancelar</a>
   </div>
 </form>
 {% endblock %}
@@ -70,53 +51,34 @@
 {% block extra_js %}
 <script>
 (function () {
-  const img     = document.getElementById('logoPreview');
   const fTicker = document.getElementById('id_ticker');
-  const fYF     = document.getElementById('id_ticker_yf');
+  const fYF = document.getElementById('id_ticker_yf');
 
-  function onlyLetters4(s){
-    return (s || '').toUpperCase().replace(/[^A-Z]/g,'').slice(0,4) || 'SEML';
-  }
-
-  function setLogo(key) {
-    if (!img) return;
-    key = (key || '').toUpperCase();
-    if (!key) { img.src = img.dataset.fallback; return; }
-    const base = "{% static 'img/ativos/' %}" + key;
-    img.onerror = function(){
-      if (!img.dataset.triedPng) { img.dataset.triedPng = "1"; img.src = base + ".png"; }
-      else { img.onerror = null; img.src = img.dataset.fallback; }
-    };
-    img.dataset.triedPng = "";
-    img.src = base + ".jpg";
-  }
-
-  function updateLogoFromTicker(){
-    const key = onlyLetters4(fTicker?.value);
-    setLogo(key);
-  }
-
-  function autofillYF(){
+  function ensureYFFormat() {
     if (!fYF) return;
-    let yf = (fYF.value || fTicker?.value || '').toUpperCase().trim();
-    if (yf && !yf.includes('.')) yf += '.SA';
+    let yf = (fYF.value || '').toUpperCase().trim();
+    if (!yf && fTicker?.value) {
+      yf = fTicker.value.toUpperCase().trim();
+    }
+    if (yf && !yf.includes('.')) {
+      yf = `${yf}.SA`;
+    }
     fYF.value = yf;
   }
 
-  // Eventos: atualiza preview enquanto digita; .SA no blur
   if (fTicker) {
-    fTicker.addEventListener('input', updateLogoFromTicker);
-    fTicker.addEventListener('blur', function(){ updateLogoFromTicker(); autofillYF(); });
-  }
-  if (fYF) {
-    fYF.addEventListener('blur', function(){
-      this.value = this.value.toUpperCase();
-      if(this.value && !this.value.includes('.')) this.value += '.SA';
+    fTicker.addEventListener('input', function () {
+      this.value = this.value.toUpperCase().replace(/[^A-Z0-9]/g, '');
     });
+    fTicker.addEventListener('blur', ensureYFFormat);
   }
 
-  // Inicial
-  updateLogoFromTicker();
+  if (fYF) {
+    fYF.addEventListener('blur', function () {
+      fYF.value = fYF.value.toUpperCase().trim();
+      ensureYFFormat();
+    });
+  }
 })();
 </script>
 {% endblock %}

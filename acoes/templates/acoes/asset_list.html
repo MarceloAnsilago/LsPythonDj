@@ -1,9 +1,57 @@
 {% extends "_base.html" %}
 {% load static %}
 
+{% block extra_head %}
+<style>
+  .asset-table-card {
+    border-radius: 24px;
+    border: 1px solid rgba(0, 0, 0, 0.08);
+    background: rgba(255, 255, 255, 0.95);
+    overflow: hidden;
+  }
+
+  .asset-table-card .table {
+    border-bottom: 0;
+    margin-bottom: 0;
+    border-collapse: separate;
+    border-spacing: 0;
+  }
+
+  .asset-table-card thead {
+    background: #f4f7ff;
+  }
+
+  .asset-table-card thead th {
+    font-weight: 600;
+    color: #1f2937;
+    border-bottom: none;
+    padding: 1rem 0.75rem;
+  }
+
+  .asset-table-card tbody tr {
+    border-bottom: 1px solid rgba(15, 23, 42, 0.05);
+    background: rgba(248, 250, 255, 0.7);
+  }
+
+  .asset-table-card tbody tr:hover {
+    background: rgba(59, 130, 246, 0.07);
+  }
+
+  .asset-actions {
+    gap: 0.5rem;
+  }
+
+  .asset-actions a {
+    text-decoration: none;
+    font-size: 0.85rem;
+    padding: 0.35rem 0.85rem;
+  }
+</style>
+{% endblock %}
+
 {% block content %}
-<!-- Cabeçalho em CARD (título + filtros à esquerda) -->
-<div class="card shadow-sm rounded-3 mb-3">
+<!-- Cabeçalho -->
+<div class="card shadow-sm rounded-4 mb-4 border-0 bg-white">
   <div class="card-body py-3">
     <h2 class="h4 mb-3">Ações</h2>
 
@@ -21,31 +69,25 @@
       <button class="btn btn-primary btn-sm">Filtrar</button>
 
       <a class="btn btn-success btn-sm ms-1" href="{% url 'acoes:novo' %}">
-        <i class="bi bi-plus-lg"></i> Novo
+        Novo
       </a>
     </form>
   </div>
 </div>
 
 <!-- Tabela -->
-<div class="card shadow-sm rounded-3">
+<div class="card asset-table-card shadow-sm mb-4 border-0">
   <div class="table-responsive">
-    <table class="table align-middle mb-0">
+    <table class="table align-middle mb-0 table-borderless">
       <thead class="table-light">
         <tr>
-          <th>Logo</th><th>Ticker</th><th>Nome</th><th>YF</th><th>Status</th>
+          <th>Ticker</th><th>Nome</th><th>YF</th><th>Status</th>
           <th class="text-center">Fav</th><th class="text-end">Ações</th>
         </tr>
       </thead>
       <tbody>
         {% for a in object_list %}
-        <tr>
-          <td>
-            <img class="logo-img rounded" alt="logo" width="88" height="38" loading="lazy"
-                src="{% static 'img/ativos/' %}{{ a.logo_prefix|upper }}.jpg"
-                data-png="{% static 'img/ativos/' %}{{ a.logo_prefix|upper }}.png"
-                data-fallback="{% static 'img/ativos/sem_logo.png' %}">
-          </td>
+        <tr class="bg-white">
           <td><span class="fw-semibold">{{ a.ticker }}</span></td>
           <td>{{ a.name }}</td>
           <td>
@@ -68,8 +110,10 @@
             </span>
           </td>
           <td class="text-end">
-            <a class="btn btn-sm btn-outline-primary" href="{% url 'acoes:editar' a.id %}"><i class="bi bi-pencil"></i></a>
-            <a class="btn btn-sm btn-outline-danger"  href="{% url 'acoes:excluir' a.id %}"><i class="bi bi-trash"></i></a>
+            <div class="d-flex asset-actions">
+              <a class="btn btn-sm btn-outline-primary" href="{% url 'acoes:editar' a.id %}">Editar</a>
+              <a class="btn btn-sm btn-outline-danger" href="{% url 'acoes:excluir' a.id %}">Excluir</a>
+            </div>
           </td>
         </tr>
         {% empty %}
@@ -96,22 +140,4 @@
 </nav>
 {% endif %}
 
-<!-- Fallback de logos (uma única vez) -->
-<script>
-document.addEventListener('DOMContentLoaded', function () {
-  document.querySelectorAll('img.logo-img').forEach(function (img) {
-    function tryPngThenFallback() {
-      if (!img.dataset.triedPng) {
-        img.dataset.triedPng = '1';
-        img.src = img.dataset.png;          // tenta .png
-      } else {
-        img.onerror = null;
-        img.src = img.dataset.fallback;     // fallback final
-      }
-    }
-    img.addEventListener('error', tryPngThenFallback);
-    if (img.complete && img.naturalWidth === 0) tryPngThenFallback();
-  });
-});
-</script>
 {% endblock %}

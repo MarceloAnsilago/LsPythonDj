@@ -1,0 +1,39 @@
+# Ambientes virtuais
+.venv
+venv
+env
+
+# Cache Python
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+
+# Pastas e arquivos grandes desnecessários
+*.sqlite3
+*.db
+*.log
+*.zip
+*.tar
+*.rar
+
+# Django collectstatic
+staticfiles/
+static/
+media/
+
+# Git e IDEs
+.git
+.gitignore
+.idea
+.vscode
+*.swp
+
+# Sistema operacional
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Configurações locais
+.env
+*.local
