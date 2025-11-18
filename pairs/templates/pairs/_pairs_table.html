@@ -105,6 +105,33 @@
           <td colspan="8" class="text-center py-4 text-body-secondary">Nenhum par cadastrado.</td>
         </tr>
       {% endfor %}
-    </tbody>
+</tbody>
   </table>
 </div>
+{% if page_obj.has_other_pages %}
+  <div class="d-flex flex-wrap justify-content-between align-items-center px-2 mt-2">
+    <small class="text-body-secondary mb-2 mb-md-0">
+      Mostrando {{ page_obj.start_index }}-{{ page_obj.end_index }} de {{ page_obj.paginator.count }} pares
+    </small>
+    <div class="btn-group btn-group-sm">
+      {% if page_obj.has_previous %}
+        <a
+          class="btn btn-outline-secondary"
+          href="?{% if base_query_string %}{{ base_query_string }}&{% endif %}page={{ page_obj.previous_page_number }}">
+          Anterior
+        </a>
+      {% else %}
+        <span class="btn btn-outline-secondary disabled">Anterior</span>
+      {% endif %}
+      {% if page_obj.has_next %}
+        <a
+          class="btn btn-outline-secondary"
+          href="?{% if base_query_string %}{{ base_query_string }}&{% endif %}page={{ page_obj.next_page_number }}">
+          Próxima
+        </a>
+      {% else %}
+        <span class="btn btn-outline-secondary disabled">Próxima</span>
+      {% endif %}
+    </div>
+  </div>
+{% endif %}

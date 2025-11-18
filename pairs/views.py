@@ -10,6 +10,7 @@ from typing import Any
 
 from django.contrib import messages
 from django.core.cache import cache
+from django.core.paginator import EmptyPage, PageNotAnInteger, Paginator
 from django.http import Http404, HttpRequest, HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils.safestring import mark_safe
@@ -28,6 +29,7 @@ from .models import Pair, UserMetricsConfig
 from .services.scan import build_pairs_base, hunt_pairs_until_found, scan_pair_windows
 
 CACHE_TTL = 60 * 30  # 30 minutes
+GRID_A_PAGE_SIZE = 50
 
 
 def _get_user_metrics_config(user) -> UserMetricsConfig | None:
@@ -124,14 +126,41 @@ def pairs_home(request: HttpRequest) -> HttpResponse:
     windows = _user_windows(config)
     base_window = _user_base_window(config)
 
-    qs = Pair.objects.all().order_by("id")
-    pairs = [p for p in qs if (p.scan_cache_json or {}).get("base", {}).get("status") == "ok"]
+    qs = (
+        Pair.objects.filter(scan_cache_json__base__status="ok")
+        .select_related("left", "right")
+        .only(
+            "id",
+            "left_id",
+            "right_id",
+            "chosen_window",
+            "scan_cache_json",
+            "scan_cached_at",
+            "left__ticker",
+            "right__ticker",
+        )
+        .order_by("id")
+    )
+
+    paginator = Paginator(qs, GRID_A_PAGE_SIZE)
+    page_number = request.GET.get("page", 1)
+    try:
+        page_obj = paginator.page(page_number)
+    except (PageNotAnInteger, EmptyPage):
+        page_obj = paginator.page(1)
+
+    pairs = page_obj
+    base_query_params = request.GET.copy()
+    base_query_params.pop("page", None)
+    base_query_string = base_query_params.urlencode()
 
     for pair in pairs:
         pair.display_base = _merge_base_with_scan(pair, base_window)
 
     context = {
         "pairs": pairs,
+        "page_obj": page_obj,
+        "base_query_string": base_query_string,
         "BASE_WINDOW": base_window,
         "DEFAULT_WINDOWS": windows,
         "SCAN_MIN": min(windows) if windows else None,

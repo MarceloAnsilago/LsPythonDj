@@ -24,6 +24,16 @@
         Atualizar cotações
       </button>
       <div id="home-refresh-feedback" class="text-body-secondary small text-end"></div>
+      <button
+        type="button"
+        id="home-refresh-metrics-btn"
+        class="btn btn-outline-secondary btn-sm"
+        data-url="{{ refresh_metrics_url }}">
+        <span class="spinner-border spinner-border-sm visually-hidden" role="status" aria-hidden="true"></span>
+        <i class="bi bi-graph-up-arrow me-1"></i>
+        Atualizar métricas
+      </button>
+      <div id="home-refresh-metrics-feedback" class="text-body-secondary small text-end"></div>
     </div>
   </div>
 
@@ -55,6 +65,9 @@ document.addEventListener("DOMContentLoaded", () => {
   const refreshBtn = document.getElementById("home-refresh-live-btn");
   const feedback = document.getElementById("home-refresh-feedback");
   let refreshUrl = refreshBtn?.dataset?.url;
+  const metricsBtn = document.getElementById("home-refresh-metrics-btn");
+  const metricsFeedback = document.getElementById("home-refresh-metrics-feedback");
+  let metricsUrl = metricsBtn?.dataset?.url;
 
   const getCookie = (name) => {
     const match = document.cookie.match(new RegExp("(^|;)\\s*" + name + "=([^;]+)"));
@@ -71,6 +84,19 @@ document.addEventListener("DOMContentLoaded", () => {
       feedback.classList.add("text-body-secondary");
     } else {
       feedback.classList.add(isError ? "text-danger" : "text-success");
+    }
+  };
+
+  const setMetricsFeedback = (text = "", isError = false) => {
+    if (!metricsFeedback) {
+      return;
+    }
+    metricsFeedback.textContent = text || "";
+    metricsFeedback.classList.remove("text-success", "text-danger", "text-body-secondary");
+    if (!text) {
+      metricsFeedback.classList.add("text-body-secondary");
+    } else {
+      metricsFeedback.classList.add(isError ? "text-danger" : "text-success");
     }
   };
 
@@ -173,10 +199,60 @@ document.addEventListener("DOMContentLoaded", () => {
       });
   };
 
+  const refreshMetrics = () => {
+    if (!metricsBtn || !metricsUrl) {
+      return;
+    }
+    metricsBtn.disabled = true;
+    const originalContent = metricsBtn.innerHTML;
+    metricsBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-1" role="status" aria-hidden="true"></span>Atualizando...';
+    setMetricsFeedback("", false);
+
+    fetch(metricsUrl, {
+      method: "POST",
+      credentials: "same-origin",
+      headers: {
+        "X-CSRFToken": getCookie("csrftoken"),
+        "X-Requested-With": "XMLHttpRequest",
+      },
+    })
+      .then((response) => {
+        if (!response.ok) {
+          throw new Error("Falha ao atualizar metricas.");
+        }
+        return response.json();
+      })
+      .then((data) => {
+        if (!data.ok) {
+          throw new Error(data.errors ? data.errors.join("; ") : "Resposta invalida.");
+        }
+        let message = `Metricas recalculadas para ${data.updated || 0} operacao${(data.updated || 0) === 1 ? "" : "es"}.`;
+        if (data.errors && data.errors.length) {
+          message += ` Erros: ${data.errors.slice(0, 3).join("; ")}`;
+        }
+        setMetricsFeedback(message, Boolean(data.errors && data.errors.length));
+        loadOperations();
+      })
+      .catch((error) => {
+        console.error(error);
+        setMetricsFeedback(error.message || "Falha ao atualizar metricas.", true);
+      })
+      .finally(() => {
+        metricsBtn.disabled = false;
+        metricsBtn.innerHTML = originalContent;
+      });
+  };
+
   if (refreshBtn) {
     refreshBtn.addEventListener("click", (ev) => {
       ev.preventDefault();
       refreshLiveQuotes();
+    });
+  }
+  if (metricsBtn) {
+    metricsBtn.addEventListener("click", (ev) => {
+      ev.preventDefault();
+      refreshMetrics();
     });
   }
 

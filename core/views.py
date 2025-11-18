@@ -162,7 +162,13 @@ def _build_home_operations_payload(request):
                 queryset=OperationMetricSnapshot.objects.filter(snapshot_type=OperationMetricSnapshot.TYPE_OPEN)
                 .order_by("-reference_date"),
                 to_attr="entry_snapshots",
-            )
+            ),
+            Prefetch(
+                "metric_snapshots",
+                queryset=OperationMetricSnapshot.objects.filter(snapshot_type=OperationMetricSnapshot.TYPE_CURRENT)
+                .order_by("-reference_date"),
+                to_attr="current_snapshots",
+            ),
         )
         .filter(user=request.user, status=Operation.STATUS_OPEN)
         .order_by("-opened_at")
@@ -186,20 +192,32 @@ def _build_home_operations_payload(request):
             right=operation.right_asset,
         )
 
+        current_snapshot = (
+            operation.current_snapshots[0] if getattr(operation, "current_snapshots", None) else None
+        )
         current_metrics_payload: dict[str, object] = {}
         current_zscore = None
-        try:
-            metrics_now = compute_pair_window_metrics(pair=pair_ref, window=operation.window)
-        except Exception:
-            metrics_now = None
-        if isinstance(metrics_now, dict):
-            current_metrics_payload = metrics_now
-            raw_z = metrics_now.get("zscore")
+        if current_snapshot and isinstance(current_snapshot.payload, dict):
+            current_metrics_payload = current_snapshot.payload
+            raw_z = current_metrics_payload.get("zscore")
             if raw_z is not None:
                 try:
                     current_zscore = float(raw_z)
                 except (TypeError, ValueError):
                     current_zscore = None
+        else:
+            try:
+                metrics_now = compute_pair_window_metrics(pair=pair_ref, window=operation.window)
+            except Exception:
+                metrics_now = None
+            if isinstance(metrics_now, dict):
+                current_metrics_payload = metrics_now
+                raw_z = metrics_now.get("zscore")
+                if raw_z is not None:
+                    try:
+                        current_zscore = float(raw_z)
+                    except (TypeError, ValueError):
+                        current_zscore = None
 
         def _build_live_price(asset):
             quote = getattr(asset, "live_quote", None) if asset else None
@@ -485,6 +503,7 @@ def home(request):
             "title": "Inicio - Operacoes em andamento",
             "operations_data_url": reverse("core:home_data"),
             "refresh_live_url": reverse("core:refresh_live_quotes"),
+            "refresh_metrics_url": reverse("core:refresh_operation_metrics"),
         },
     )
 
@@ -514,6 +533,42 @@ def refresh_live_quotes(request):
     except Exception as exc:
         return JsonResponse({"ok": False, "detail": str(exc)}, status=500)
     return JsonResponse({"ok": True, "updated": updated, "total": total})
+
+
+@login_required
+@require_POST
+def refresh_operation_metrics(request):
+    operations_qs = (
+        Operation.objects.select_related("pair", "left_asset", "right_asset")
+        .filter(user=request.user, status=Operation.STATUS_OPEN)
+        .order_by("-opened_at")
+    )
+    updated = 0
+    errors: list[str] = []
+    for operation in operations_qs:
+        pair_ref = operation.pair or SimpleNamespace(
+            left=operation.left_asset,
+            right=operation.right_asset,
+        )
+        try:
+            metrics = compute_pair_window_metrics(pair=pair_ref, window=operation.window)
+        except Exception as exc:
+            errors.append(f"{operation.pk}: {exc}")
+            continue
+        if not isinstance(metrics, dict):
+            continue
+        snapshot, _ = OperationMetricSnapshot.objects.update_or_create(
+            operation=operation,
+            snapshot_type=OperationMetricSnapshot.TYPE_CURRENT,
+            defaults={"reference_date": timezone.localdate()},
+        )
+        snapshot.apply_payload(metrics)
+        snapshot.save()
+        updated += 1
+    payload = {"ok": True, "updated": updated}
+    if errors:
+        payload["errors"] = errors
+    return JsonResponse(payload)
 
 
 def stub_page(request, page: str = "Pagina"):
