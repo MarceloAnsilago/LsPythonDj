@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import csv
 import json
 import math
 import re
 import threading
+import time
 import traceback
 import uuid
 from typing import Any
@@ -19,9 +21,7 @@ from django.views.decorators.http import require_GET, require_POST
 
 from acoes.models import Asset
 from longshort.services.metrics import (
-    compute_pair_window_metrics,
-    get_moving_beta_series,
-    get_normalized_price_series,
+    get_pair_timeseries_and_metrics,
     get_zscore_series,
 )
 from .constants import DEFAULT_BASE_WINDOW, DEFAULT_BETA_WINDOW, DEFAULT_WINDOWS
@@ -67,12 +67,12 @@ _BASE_DISPLAY_METRICS = (
 
 
 def _merge_base_with_scan(pair: Pair, base_window: int) -> dict:
-    cache = pair.scan_cache_json or {}
-    base_payload = cache.get("base") or {}
+    scan_cache = pair.scan_cache_json or {}
+    base_payload = scan_cache.get("base") or {}
     if not base_payload:
         return base_payload
     target_window = base_payload.get("window") or pair.chosen_window or base_window
-    scan_rows = (cache.get("scan") or {}).get("rows") or []
+    scan_rows = (scan_cache.get("scan") or {}).get("rows") or []
     matching_row = next((row for row in scan_rows if row.get("window") == target_window), None)
     if not matching_row:
         return base_payload
@@ -215,11 +215,12 @@ def choose_window(request: HttpRequest, pair_id: int, window: int) -> HttpRespon
 def zscore_chart(request: HttpRequest, pair_id: int, window: int) -> HttpResponse:
     pair = get_object_or_404(Pair, pk=pair_id)
 
-    series = get_zscore_series(pair, window)
+    data = get_pair_timeseries_and_metrics(pair=pair, window=window, beta_window=_user_beta_window(_get_user_metrics_config(request.user)))
+    series = data["zscore_series"]
     labels = [d.strftime("%Y-%m-%d") for d, _ in series] if series else []
     values = [z for _, z in series] if series else []
 
-    metrics = compute_pair_window_metrics(pair=pair, window=window)
+    metrics = data["metrics"]
     adf_pct = None
     if metrics.get("adf_pvalue") is not None:
         adf_pct = (1.0 - float(metrics["adf_pvalue"])) * 100.0
@@ -251,9 +252,65 @@ def hunt_start(request: HttpRequest) -> HttpResponse:
 
     job_id = uuid.uuid4().hex
     cache.set(f"hunt:{job_id}", {"state": "starting"}, CACHE_TTL)
+    log_key = f"hunt:log:{job_id}"
+    decision_key = f"hunt:decision:{job_id}"
+    cache.set(log_key, [], CACHE_TTL)
 
     def progress_cb(ev: dict[str, Any]) -> None:
-        cache.set(f"hunt:{job_id}", {"state": "running", **ev}, CACHE_TTL)
+        state = ev.get("state") or "running"
+        payload = dict(ev)
+        payload.pop("state", None)
+        cache.set(f"hunt:{job_id}", {"state": state, **payload}, CACHE_TTL)
+        if ev.get("phase") == "pair":
+            rows = cache.get(log_key) or []
+            rows.append(
+                {
+                    "pair_label": ev.get("pair_label"),
+                    "status": ev.get("status"),
+                    "message": ev.get("message"),
+                    "window": ev.get("window"),
+                    "approved": ev.get("approved"),
+                    "i": ev.get("i"),
+                    "total": ev.get("total"),
+                    "compute_ms": round(ev.get("compute_ms", 0), 1),
+                }
+            )
+            if len(rows) > 500:
+                rows = rows[-500:]
+            cache.set(log_key, rows, CACHE_TTL)
+
+    def wait_for_next_window(current_window: int, next_window: int, scanned_windows: list[int]) -> bool:
+        cache.delete(decision_key)
+        current_status = cache.get(f"hunt:{job_id}") or {}
+        waiting_payload = {
+            **current_status,
+            "state": "waiting",
+            "phase": "window_next",
+            "window": current_window,
+            "next_window": next_window,
+            "approved": 0,
+            "scanned_windows": scanned_windows,
+        }
+        cache.set(f"hunt:{job_id}", waiting_payload, CACHE_TTL)
+        while True:
+            choice = cache.get(decision_key)
+            if choice == "continue":
+                cache.delete(decision_key)
+                cache.set(
+                    f"hunt:{job_id}",
+                    {
+                        **waiting_payload,
+                        "state": "running",
+                        "phase": "window_continue",
+                        "window": next_window,
+                    },
+                    CACHE_TTL,
+                )
+                return True
+            if choice == "cancel":
+                cache.delete(decision_key)
+                return False
+            time.sleep(0.5)
 
     def runner() -> None:
         try:
@@ -262,19 +319,68 @@ def hunt_start(request: HttpRequest) -> HttpResponse:
                 source="assets",
                 progress_cb=progress_cb,
                 metrics_config=config,
+                wait_for_next_window=wait_for_next_window,
             )
             cache.set(f"hunt:{job_id}", {"state": "done", "result": result}, CACHE_TTL)
         except Exception as exc:  # pragma: no cover - defensive
             cache.set(f"hunt:{job_id}", {"state": "error", "error": str(exc)}, CACHE_TTL)
 
     threading.Thread(target=runner, daemon=True).start()
-    return render(request, "pairs/_hunt_status.html", {"job_id": job_id})
+    return render(request, "pairs/_hunt_status.html", {"job_id": job_id, "log_rows": []})
 
 
 @require_GET
 def hunt_status(request: HttpRequest, job_id: str) -> HttpResponse:
     data = cache.get(f"hunt:{job_id}") or {"state": "unknown"}
-    return render(request, "pairs/_hunt_status.html", {"job_id": job_id, "data": data})
+    log_rows = cache.get(f"hunt:log:{job_id}") or []
+    return render(
+        request,
+        "pairs/_hunt_status.html",
+        {"job_id": job_id, "data": data, "log_rows": log_rows},
+    )
+
+
+@require_POST
+def hunt_decision(request: HttpRequest, job_id: str) -> HttpResponse:
+    action = request.POST.get("action")
+    if action not in {"continue", "cancel"}:
+        return HttpResponse("Acao invalida", status=400)
+    decision_key = f"hunt:decision:{job_id}"
+    cache.set(decision_key, action, CACHE_TTL)
+    data = cache.get(f"hunt:{job_id}") or {"state": "unknown"}
+    log_rows = cache.get(f"hunt:log:{job_id}") or []
+    return render(
+        request,
+        "pairs/_hunt_status.html",
+        {"job_id": job_id, "data": data, "log_rows": log_rows},
+    )
+
+
+@require_GET
+def hunt_export(request: HttpRequest, job_id: str) -> HttpResponse:
+    log_rows = cache.get(f"hunt:log:{job_id}") or []
+    if not log_rows:
+        raise Http404("Nenhum log de caça disponível para este trabalho.")
+    response = HttpResponse(content_type="text/csv")
+    response["Content-Disposition"] = f'attachment; filename="hunt-{job_id}.csv"'
+    writer = csv.writer(response)
+    writer.writerow(
+        ["Par", "Status", "Mensagem", "Janela", "Resultado", "Compute ms", "Iteração", "Total"]
+    )
+    for row in log_rows:
+        writer.writerow(
+            [
+                row.get("pair_label"),
+                row.get("status"),
+                row.get("message"),
+                row.get("window"),
+                "aprovado" if row.get("approved") else "reprovado",
+                row.get("compute_ms"),
+                row.get("i"),
+                row.get("total"),
+            ]
+        )
+    return response
 
 
 # -------- Refresh base (background) --------
@@ -429,7 +535,12 @@ def analysis_entry(request: HttpRequest) -> HttpResponse:
 def analysis_metrics(request: HttpRequest) -> HttpResponse:
     config = _get_user_metrics_config(request.user)
     pair, window, _ = _resolve_context(request, config)
-    metrics = compute_pair_window_metrics(pair=pair, window=window)
+    data = get_pair_timeseries_and_metrics(
+        pair=pair,
+        window=window,
+        beta_window=_user_beta_window(config),
+    )
+    metrics = data["metrics"]
     metrics_display = _build_metrics_display(metrics)
     return render(
         request,
@@ -449,11 +560,16 @@ def analysis_zseries(request: HttpRequest) -> HttpResponse:
     pair, window, _ = _resolve_context(request, config)
     beta_window = _user_beta_window(config)
 
-    metrics = compute_pair_window_metrics(pair=pair, window=window)
+    data = get_pair_timeseries_and_metrics(
+        pair=pair,
+        window=window,
+        beta_window=beta_window,
+    )
+    metrics = data["metrics"]
     metrics_display = _build_metrics_display(metrics)
-    series = get_zscore_series(pair, window)
-    normalized_series = get_normalized_price_series(pair=pair, window=window)
-    moving_beta_series = get_moving_beta_series(pair=pair, window=window, beta_window=beta_window)
+    series = data["zscore_series"]
+    normalized_series = data["normalized_series"]
+    moving_beta_series = data["moving_beta_series"]
 
     labels: list[str] = []
     values: list[float] = []

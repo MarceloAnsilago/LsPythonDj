@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import time
+
 from dataclasses import dataclass
 from itertools import combinations
 from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence, TYPE_CHECKING
 
 from django.conf import settings
+from django.db.models import Q
 from django.utils import timezone
 
 from acoes.models import Asset
@@ -17,10 +20,11 @@ from pairs.constants import (
 )
 from pairs.models import Pair
 
-try:
-    from longshort.services.metrics import compute_pair_window_metrics
-except Exception:  # pragma: no cover - defensive fallback
-    compute_pair_window_metrics = None
+from longshort.services.metrics import (
+    CandleUniverse,
+    compute_pair_window_metrics,
+    load_candles_for_universe_from_supabase,
+)
 
 if TYPE_CHECKING:  # pragma: no cover - type hints only
     from pairs.models import UserMetricsConfig
@@ -160,6 +164,17 @@ def scan_pair_windows(
     resolved_windows = _resolve_windows(windows, metrics_config)
     thresholds = thresholds or get_thresholds(config=metrics_config)
 
+    candles: CandleUniverse | None = None
+    if resolved_windows:
+        max_window = max(resolved_windows)
+        try:
+            candles = load_candles_for_universe_from_supabase(
+                [pair.left_id, pair.right_id],
+                lookback_windows=max_window,
+            )
+        except Exception:
+            candles = None
+
     rows: List[WindowRow] = []
     best: Optional[WindowRow] = None
 
@@ -178,7 +193,7 @@ def scan_pair_windows(
             if compute_pair_window_metrics is None:
                 raise RuntimeError("Funcao compute_pair_window_metrics nao encontrada.")
 
-            metrics = compute_pair_window_metrics(pair=pair, window=window_value) or {}
+            metrics = compute_pair_window_metrics(pair=pair, window=window_value, candles=candles) or {}
 
             adf_pvalue_raw = metrics.get("adf_pvalue")
             if adf_pvalue_raw is not None:
@@ -280,6 +295,8 @@ def _compute_base_for_pair(
     thresholds: Thresholds | None = None,
     *,
     metrics_config: "UserMetricsConfig" | None = None,
+    candles: CandleUniverse | None = None,
+    pair_label: str | None = None,
 ) -> tuple[bool, Dict[str, Any], str]:
     """
     Compute the Grid A metrics for a pair and decide approval based on thresholds.
@@ -290,7 +307,23 @@ def _compute_base_for_pair(
     thresholds = thresholds or get_thresholds(config=metrics_config)
 
     try:
-        metrics = compute_pair_window_metrics(pair=pair, window=window) or {}
+        compute_start = time.perf_counter()
+        metrics = compute_pair_window_metrics(
+            pair=pair, window=window, candles=candles
+        ) or {}
+        compute_end = time.perf_counter()
+        label = pair_label or f"{pair.left_id}-{pair.right_id}"
+        ready = bool(metrics.get("ready_for_approval"))
+        skip_reason = metrics.get("skip_reason")
+        if getattr(settings, "PAIRS_DEBUG_LOG", False):
+            print(
+                f"pair={label} compute_ms={(compute_end - compute_start)*1000:.1f} "
+                f"ready={ready} skip_reason={skip_reason}"
+            )
+
+        if not ready:
+            reason = metrics.get("skip_reason") or "Filtros iniciais nao atendidos"
+            return False, {}, reason
 
         adf_pvalue_raw = metrics.get("adf_pvalue")
         adf_pvalue = float(adf_pvalue_raw) if adf_pvalue_raw is not None else None
@@ -365,6 +398,15 @@ def build_pairs_base(
     assets = list(qs)
     n_assets = len(assets)
     total = (n_assets * (n_assets - 1)) // 2 if n_assets >= 2 else 0
+
+    asset_ids = [asset.id for asset in assets]
+    existing_pairs: dict[tuple[int, int], Pair] = {}
+    if asset_ids:
+        pairs_qs = Pair.objects.filter(
+            Q(left_id__in=asset_ids, right_id__in=asset_ids)
+        ).only("id", "left_id", "right_id", "scan_cache_json", "scan_cached_at")
+        for existing in pairs_qs:
+            existing_pairs[(existing.left_id, existing.right_id)] = existing
     processed = 0
 
     created = 0
@@ -372,7 +414,21 @@ def build_pairs_base(
     approved_ids: List[int] = []
     errors: List[str] = []
 
+    t0 = time.perf_counter()
     thresholds = thresholds or get_thresholds(config=metrics_config)
+
+    candles_for_assets: "CandleUniverse" | None = None
+    if load_candles_for_universe_from_supabase is not None and assets:
+        asset_ids = [asset.id for asset in assets]
+        if asset_ids:
+            try:
+                candles_for_assets = load_candles_for_universe_from_supabase(
+                    asset_ids,
+                    lookback_windows=window,
+                )
+            except Exception:
+                candles_for_assets = None
+    t1 = time.perf_counter()
 
     for left, right in combinations(assets, 2):
         processed += 1
@@ -388,25 +444,46 @@ def build_pairs_base(
                 }
             )
 
-        pair = Pair.objects.filter(left=left, right=right).first()
+        key = (left.id, right.id)
+        existing_pair = existing_pairs.get(key)
         was_created = False
-        just_created = False
+        temp_pair = existing_pair or Pair(left=left, right=right, base_window=window)
 
         try:
-            if pair is None:
-                pair = Pair(left=left, right=right)
-                pair.save()
-                was_created = True
-                just_created = True
-
+            pair_label = f"{getattr(left, 'ticker', left.id)}-{getattr(right, 'ticker', right.id)}"
+            pair_start = time.perf_counter()
             approved, base_payload, message = _compute_base_for_pair(
-                pair,
+                temp_pair,
                 window=window,
                 thresholds=thresholds,
                 metrics_config=metrics_config,
+                candles=candles_for_assets,
+                pair_label=pair_label,
             )
+            pair_end = time.perf_counter()
+            event = {
+                "phase": "pair",
+                "pair_label": pair_label,
+                "status": "approved" if approved else "reprovado",
+                "message": "OK" if approved else message,
+                "window": window,
+                "approved": approved,
+                "i": processed,
+                "total": total,
+                "compute_ms": (pair_end - pair_start) * 1000,
+            }
+            if progress_cb:
+                progress_cb(event)
 
             if approved:
+                if existing_pair is None:
+                    temp_pair.save()
+                    existing_pairs[key] = temp_pair
+                    pair = temp_pair
+                    was_created = True
+                else:
+                    pair = existing_pair
+
                 sc = pair.scan_cache_json or {}
                 sc["base"] = base_payload
                 pair.scan_cache_json = sc
@@ -419,31 +496,27 @@ def build_pairs_base(
                 else:
                     updated += 1
             else:
-                if was_created and just_created:
-                    pair.delete()
-                else:
-                    sc = pair.scan_cache_json or {}
+                if existing_pair is not None:
+                    sc = existing_pair.scan_cache_json or {}
                     sc["base"] = {
                         "window": window,
                         "status": "reprovado",
                         "message": message,
                     }
-                    pair.scan_cache_json = sc
-                    pair.scan_cached_at = timezone.now()
-                    pair.save(update_fields=["scan_cache_json", "scan_cached_at"])
+                    existing_pair.scan_cache_json = sc
+                    existing_pair.scan_cached_at = timezone.now()
+                    existing_pair.save(update_fields=["scan_cache_json", "scan_cached_at"])
 
         except Exception as exc:  # pragma: no cover - defensive
-            if was_created and just_created and getattr(pair, "pk", None):
-                try:
-                    pair.delete()
-                except Exception:
-                    pass
             errors.append(
                 f"Pair {getattr(left, 'ticker', '?')}-{getattr(right, 'ticker', '?')}: {exc}"
             )
 
     if progress_cb:
         progress_cb({"phase": "done", "i": processed, "total": total, "window": window})
+    t2 = time.perf_counter()
+    print("fetch_universe_ms =", (t1 - t0) * 1000)
+    print("total_compute_ms  =", (t2 - t1) * 1000)
 
     return {
         "created": created,
@@ -461,6 +534,7 @@ def hunt_pairs_until_found(
     progress_cb: Optional[Callable[[ProgressEvent], None]] = None,
     thresholds: Thresholds | None = None,
     metrics_config: "UserMetricsConfig" | None = None,
+    wait_for_next_window: Optional[Callable[[int, int, Sequence[int]], bool]] = None,
 ) -> Dict[str, Any]:
     """
     Iterate over a descending list of windows trying to approve pairs.
@@ -479,7 +553,19 @@ def hunt_pairs_until_found(
     thresholds = thresholds or get_thresholds(config=metrics_config)
 
     if source == "assets":
-        for window_value in window_sequence:
+        if not window_sequence:
+            if progress_cb:
+                progress_cb({"phase": "done", "window": None, "approved": 0})
+            return {
+                "found": False,
+                "window": None,
+                "approved_ids": [],
+                "errors": all_errors,
+                "scanned_windows": scanned,
+                "cancelled": False,
+            }
+
+        for idx, window_value in enumerate(window_sequence):
             scanned.append(window_value)
             if progress_cb:
                 progress_cb({"phase": "window_start", "window": window_value})
@@ -511,7 +597,41 @@ def hunt_pairs_until_found(
                     "approved_ids": approved,
                     "errors": all_errors,
                     "scanned_windows": scanned,
+                    "cancelled": False,
                 }
+            elif idx < len(window_sequence) - 1:
+                # Nenhum aprovado nesta janela; antes de seguir pede confirmacao do usuario
+                next_window = window_sequence[idx + 1]
+                if progress_cb:
+                    progress_cb(
+                        {
+                            "phase": "window_next",
+                            "window": window_value,
+                            "next_window": next_window,
+                            "approved": 0,
+                            "state": "waiting" if wait_for_next_window else "running",
+                        }
+                    )
+                if wait_for_next_window:
+                    should_continue = wait_for_next_window(window_value, next_window, list(scanned))
+                    if not should_continue:
+                        if progress_cb:
+                            progress_cb(
+                                {
+                                    "phase": "cancelled",
+                                    "window": window_value,
+                                    "approved": 0,
+                                    "state": "done",
+                                }
+                            )
+                        return {
+                            "found": False,
+                            "window": window_value,
+                            "approved_ids": [],
+                            "errors": all_errors,
+                            "scanned_windows": scanned,
+                            "cancelled": True,
+                        }
 
         if progress_cb:
             progress_cb({"phase": "done", "window": None, "approved": 0})
@@ -521,12 +641,13 @@ def hunt_pairs_until_found(
             "approved_ids": [],
             "errors": all_errors,
             "scanned_windows": scanned,
+            "cancelled": False,
         }
 
     if source == "existing_pairs":
         qs = Pair.objects.all().order_by("id")
         approved_ids: List[int] = []
-        for window_value in window_sequence:
+        for idx, window_value in enumerate(window_sequence):
             scanned.append(window_value)
             approved_ids.clear()
             for pair in qs:
@@ -536,6 +657,7 @@ def hunt_pairs_until_found(
                         window=window_value,
                         thresholds=thresholds,
                         metrics_config=metrics_config,
+                        pair_label=f"{pair.left_id}-{pair.right_id}",
                     )
                     sc = pair.scan_cache_json or {}
                     if ok:
@@ -571,7 +693,40 @@ def hunt_pairs_until_found(
                     "approved_ids": list(approved_ids),
                     "errors": all_errors,
                     "scanned_windows": scanned,
+                    "cancelled": False,
                 }
+
+            if idx < len(window_sequence) - 1 and wait_for_next_window:
+                next_window = window_sequence[idx + 1]
+                if progress_cb:
+                    progress_cb(
+                        {
+                            "phase": "window_next",
+                            "window": window_value,
+                            "next_window": next_window,
+                            "approved": 0,
+                            "state": "waiting",
+                        }
+                    )
+                should_continue = wait_for_next_window(window_value, next_window, list(scanned))
+                if not should_continue:
+                    if progress_cb:
+                        progress_cb(
+                            {
+                                "phase": "cancelled",
+                                "window": window_value,
+                                "approved": 0,
+                                "state": "done",
+                            }
+                        )
+                    return {
+                        "found": False,
+                        "window": window_value,
+                        "approved_ids": [],
+                        "errors": all_errors,
+                        "scanned_windows": scanned,
+                        "cancelled": True,
+                    }
 
         if progress_cb:
             progress_cb({"phase": "done", "window": None, "approved": 0})
@@ -581,6 +736,7 @@ def hunt_pairs_until_found(
             "approved_ids": [],
             "errors": all_errors,
             "scanned_windows": scanned,
+            "cancelled": False,
         }
 
     return {
@@ -589,4 +745,5 @@ def hunt_pairs_until_found(
         "approved_ids": [],
         "errors": [f"source invalido: {source}"],
         "scanned_windows": [],
+        "cancelled": False,
     }

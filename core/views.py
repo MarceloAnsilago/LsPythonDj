@@ -205,17 +205,38 @@ def _build_home_operations_payload(request):
                     current_zscore = float(raw_z)
                 except (TypeError, ValueError):
                     current_zscore = None
-        else:
+            # fallback para o campo salvo no snapshot caso o payload nao tenha o zscore
+            if current_zscore is None and current_snapshot.zscore is not None:
+                try:
+                    current_zscore = float(current_snapshot.zscore)
+                except (TypeError, ValueError):
+                    current_zscore = None
+        if current_zscore is None:
             try:
                 metrics_now = compute_pair_window_metrics(pair=pair_ref, window=operation.window)
             except Exception:
                 metrics_now = None
             if isinstance(metrics_now, dict):
-                current_metrics_payload = metrics_now
+                if not current_metrics_payload:
+                    current_metrics_payload = metrics_now
                 raw_z = metrics_now.get("zscore")
                 if raw_z is not None:
                     try:
                         current_zscore = float(raw_z)
+                    except (TypeError, ValueError):
+                        current_zscore = None
+
+        # Ultimo recurso: calcula zscore via serie se ainda estiver vazio
+        if current_zscore is None:
+            try:
+                z_series = get_zscore_series(pair=pair_ref, window=operation.window)
+            except Exception:
+                z_series = []
+            if z_series:
+                last_point = z_series[-1]
+                if last_point and len(last_point) >= 2:
+                    try:
+                        current_zscore = float(last_point[1])
                     except (TypeError, ValueError):
                         current_zscore = None
 

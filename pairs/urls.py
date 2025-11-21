@@ -11,6 +11,8 @@ urlpatterns = [
     path("zscore/<int:pair_id>/<int:window>/", views.zscore_chart, name="zscore"),
     path("hunt/start/", views.hunt_start, name="hunt_start"),
     path("hunt/status/<str:job_id>/", views.hunt_status, name="hunt_status"),
+    path("hunt/decision/<str:job_id>/", views.hunt_decision, name="hunt_decision"),
+    path("hunt/export/<str:job_id>/", views.hunt_export, name="hunt_export"),
     path("refresh/start/", views.refresh_start, name="refresh_start"),
     path("refresh/status/<str:job_id>/", views.refresh_status, name="refresh_status"),
 

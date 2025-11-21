@@ -1,10 +1,16 @@
 # longshort/services/metrics.py
 from __future__ import annotations
 from dataclasses import dataclass
+from datetime import date, timedelta
 from decimal import Decimal, ROUND_DOWN
+from typing import Any, Dict, Iterable, Optional
+
 import numpy as np
 import pandas as pd
-from typing import Any, Dict, Optional
+from django.conf import settings
+from django.db.models import Max
+from django.utils import timezone
+from statsmodels.tsa.stattools import adfuller
 
 # Modelos
 from acoes.models import Asset
@@ -46,58 +52,143 @@ def _last_corr(returns_a: pd.Series, returns_b: pd.Series, lookback: int) -> flo
     val = c[0, 1]
     return float(val) if np.isfinite(val) else None
 
-def compute_pair_window_metrics(*, pair, window: int) -> Dict[str, Any]:
+
+@dataclass
+class CandleUniverse:
+    frames: dict[int, pd.DataFrame]
+
+    @classmethod
+    def from_dataframe(cls, dataframe: pd.DataFrame) -> "CandleUniverse":
+        frames: dict[int, pd.DataFrame] = {}
+        for asset_id, group in dataframe.groupby("asset_id", sort=False):
+            sorted_group = group.sort_values("date").reset_index(drop=True)
+            frames[int(asset_id)] = sorted_group
+        return cls(frames)
+
+    def tail_for(self, asset_id: int, limit: int) -> pd.DataFrame | None:
+        frame = self.frames.get(asset_id)
+        if frame is None or frame.empty:
+            return None
+        if limit <= 0 or limit >= len(frame):
+            return frame
+        return frame.iloc[-limit:]
+
+
+CANDLE_LOOKBACK_PAD = 3
+
+MIN_CORRELATION_THRESHOLD = getattr(settings, "PAIRS_MIN_CORRELATION_THRESHOLD", 0.5)
+MIN_ZSCORE_FOR_HEAVY = getattr(settings, "PAIRS_MIN_ZSCORE_FOR_HEAVY", 1.5)
+
+
+def load_candles_for_universe_from_supabase(
+    universe: Iterable[int] | Iterable[Asset],
+    lookback_windows: int,
+    *,
+    window_end: date | None = None,
+    pad_factor: int = CANDLE_LOOKBACK_PAD,
+) -> CandleUniverse:
+    asset_ids = {asset if isinstance(asset, int) else asset.id for asset in universe}
+    if not asset_ids:
+        return CandleUniverse({})
+
+    if window_end is None:
+        window_end = QuoteDaily.objects.aggregate(Max("date"))["date__max"]
+        window_end = window_end or timezone.localdate()
+
+    lookback_days = max(1, lookback_windows * pad_factor)
+    window_start = window_end - timedelta(days=lookback_days)
+
+    qs = (
+        QuoteDaily.objects.filter(asset_id__in=asset_ids, date__range=(window_start, window_end))
+        .values("asset_id", "date", "close")
+    )
+
+    data = pd.DataFrame(list(qs))
+    if data.empty:
+        return CandleUniverse({})
+
+    data["date"] = pd.to_datetime(data["date"])
+    data.sort_values(["asset_id", "date"], inplace=True)
+    return CandleUniverse.from_dataframe(data)
+
+
+def compute_pair_window_metrics(
+    *,
+    pair,
+    window: int,
+    candles: CandleUniverse | None = None,
+) -> Dict[str, Any]:
     """
     Calcula métricas para um par (pair.left, pair.right) na janela 'window' (em dias úteis da sua base).
-    Retorna dict com:
-      adf_pvalue, beta, zscore, half_life, corr30, corr60, n_samples
+    Retorna dict com métricas leves (corr, n_samples etc.) e só roda os cálculos mais caros quando
+    um par passar pelos filtros anteriores.
     """
     left = pair.left
     right = pair.right
 
     # Carrega últimos 'window' candles **alinhados por data** (inner join)
     # Estratégia: puxa um pouco mais e faz o alinhamento em pandas.
-    ql = (QuoteDaily.objects
-          .filter(asset=left)
-          .values("date", "close")
-          .order_by("-date")[:window*2])
-    qr = (QuoteDaily.objects
-          .filter(asset=right)
-          .values("date", "close")
-          .order_by("-date")[:window*2])
+    lookback = max(window * 2, 1)
 
-    df_l = pd.DataFrame(list(ql)).rename(columns={"close": "close_l"})
-    df_r = pd.DataFrame(list(qr)).rename(columns={"close": "close_r"})
-    if df_l.empty or df_r.empty:
-        return {"n_samples": 0}
+    def _cached_asset_frame(asset_id: int, suffix: str) -> pd.DataFrame | None:
+        if candles is None:
+            return None
+        frame = candles.tail_for(asset_id, lookback)
+        if frame is None or frame.empty:
+            return None
+        return frame.rename(columns={"close": suffix})
 
-    df = pd.merge(df_l, df_r, on="date", how="inner").sort_values("date").tail(window)
+    def _merge_frames(left_frame: pd.DataFrame, right_frame: pd.DataFrame) -> pd.DataFrame:
+        merged = pd.merge(left_frame, right_frame, on="date", how="inner").sort_values("date")
+        return merged.tail(window)
+
+    df = None
+    cached_left = _cached_asset_frame(pair.left_id, "close_l")
+    cached_right = _cached_asset_frame(pair.right_id, "close_r")
+    if cached_left is not None and cached_right is not None:
+        df = _merge_frames(cached_left, cached_right)
+
+    if df is None or df.empty:
+        ql = (QuoteDaily.objects
+              .filter(asset=left)
+              .values("date", "close")
+              .order_by("-date")[:lookback])
+        qr = (QuoteDaily.objects
+              .filter(asset=right)
+              .values("date", "close")
+              .order_by("-date")[:lookback])
+
+        df_l = pd.DataFrame(list(ql)).rename(columns={"close": "close_l"})
+        df_r = pd.DataFrame(list(qr)).rename(columns={"close": "close_r"})
+        if df_l.empty or df_r.empty:
+            return {"n_samples": 0}
+
+        df = _merge_frames(df_l, df_r)
+
+    if df.empty:
+        return {
+            "n_samples": 0,
+            "ready_for_approval": False,
+            "skip_reason": "Sem dados",
+        }
+
     n = len(df)
     if n < 60:
-        return {"n_samples": int(n)}
+        return {
+            "n_samples": int(n),
+            "ready_for_approval": False,
+            "skip_reason": "Amostra insuficiente",
+        }
 
     # Preços em log
     px_l = np.log(df["close_l"].astype(float))
     px_r = np.log(df["close_r"].astype(float))
 
-    # Estima beta via OLS: y = a + beta * x  (y=left, x=right)
-    X = np.vstack([np.ones(n), px_r.values]).T
-    y = px_l.values
-    beta_hat = np.linalg.lstsq(X, y, rcond=None)[0][1]
-
-    spread = px_l - beta_hat * px_r
-    spread_z = (spread - spread.mean()) / (spread.std(ddof=1) if spread.std(ddof=1) != 0 else 1)
-
-    # ADF no spread (precisa statsmodels)
-    try:
-        from statsmodels.tsa.stattools import adfuller
-        adf_res = adfuller(spread.values, maxlag=1, regression="c", autolag="AIC")
-        adf_pvalue = float(adf_res[1])
-    except Exception:
-        adf_pvalue = None
-
-    # Half-life
-    hl = _half_life(spread)
+    result: Dict[str, Any] = {
+        "n_samples": int(n),
+        "ready_for_approval": False,
+        "skip_reason": None,
+    }
 
     # Correlações de retornos (log-retornos)
     ret_l = px_l.diff()
@@ -105,15 +196,71 @@ def compute_pair_window_metrics(*, pair, window: int) -> Dict[str, Any]:
     corr30 = _last_corr(ret_l, ret_r, 30)
     corr60 = _last_corr(ret_l, ret_r, 60)
 
-    return {
-        "adf_pvalue": adf_pvalue,
-        "beta": float(beta_hat),
-        "zscore": float(spread_z.iloc[-1]) if np.isfinite(spread_z.iloc[-1]) else None,
-        "half_life": hl,
-        "corr30": corr30,
-        "corr60": corr60,
-        "n_samples": int(n),
-    }
+    result.update(
+        corr30=corr30,
+        corr60=corr60,
+    )
+
+    valid_corrs = [c for c in (corr30, corr60) if c is not None]
+    if not valid_corrs:
+        result["skip_reason"] = "Sem correlacao confiavel"
+        return result
+    if all(abs(c) < MIN_CORRELATION_THRESHOLD for c in valid_corrs):
+        result["skip_reason"] = "Correlacao insuficiente"
+        return result
+
+    # Estima beta via OLS: y = a + beta * x  (y=left, x=right)
+    X = np.vstack([np.ones(n), px_r.values]).T
+    y = px_l.values
+    beta_hat = np.linalg.lstsq(X, y, rcond=None)[0][1]
+
+    spread = px_l - beta_hat * px_r
+    std = spread.std(ddof=1)
+    if std == 0 or not np.isfinite(std):
+        std = 1.0
+    spread_z = (spread - spread.mean()) / std
+
+    zscore_value: Optional[float] = None
+    if not spread_z.empty:
+        last_z = spread_z.iloc[-1]
+        if np.isfinite(last_z):
+            zscore_value = float(last_z)
+
+    result.update(
+        beta=float(beta_hat),
+        zscore=zscore_value,
+    )
+
+    has_good_corr = any(
+        corr is not None and abs(corr) >= MIN_CORRELATION_THRESHOLD
+        for corr in (corr30, corr60)
+    )
+    heavy_ready = (
+        zscore_value is not None
+        and abs(zscore_value) >= MIN_ZSCORE_FOR_HEAVY
+        and has_good_corr
+    )
+
+    adf_pvalue: Optional[float] = None
+    half_life: Optional[float] = None
+
+    if heavy_ready:
+        try:
+            adf_res = adfuller(spread.values, maxlag=1, regression="c", autolag="AIC")
+            adf_pvalue = float(adf_res[1])
+        except Exception:
+            adf_pvalue = None
+        half_life = _half_life(spread)
+        result["ready_for_approval"] = True
+        result["skip_reason"] = None
+    else:
+        if result["skip_reason"] is None:
+            result["skip_reason"] = "Zscore insuficiente ou correlacao fraca"
+        result["ready_for_approval"] = False
+    result["adf_pvalue"] = adf_pvalue
+    result["half_life"] = half_life
+
+    return result
 
 
 @dataclass(frozen=True)
@@ -500,3 +647,117 @@ def get_moving_beta_series(pair, window: int, beta_window: int = 5) -> list[tupl
         ))
 
     return series
+
+
+def get_pair_timeseries_and_metrics(
+    pair,
+    window: int,
+    beta_window: int = 5,
+) -> dict[str, Any]:
+    """
+    Cria um conjunto unificado de candles, métricas e séries para a análise de um par.
+    """
+    candles = load_candles_for_universe_from_supabase(
+        universe=[pair.left_id, pair.right_id],
+        lookback_windows=window,
+    )
+
+    left_frame = candles.tail_for(pair.left_id, limit=window * 2)
+    right_frame = candles.tail_for(pair.right_id, limit=window * 2)
+
+    if left_frame is None or right_frame is None or left_frame.empty or right_frame.empty:
+        return {
+            "metrics": {"n_samples": 0},
+            "zscore_series": [],
+            "normalized_series": [],
+            "moving_beta_series": [],
+        }
+
+    df = (
+        left_frame.rename(columns={"close": "close_l"})
+        .merge(
+            right_frame.rename(columns={"close": "close_r"}),
+            on="date",
+            how="inner",
+        )
+        .sort_values("date")
+        .tail(window)
+        .reset_index(drop=True)
+    )
+
+    n = len(df)
+    if n < 2:
+        return {
+            "metrics": {"n_samples": n},
+            "zscore_series": [],
+            "normalized_series": [],
+            "moving_beta_series": [],
+        }
+
+    metrics = compute_pair_window_metrics(pair=pair, window=window, candles=candles)
+
+    px_l = np.log(df["close_l"].astype(float))
+    px_r = np.log(df["close_r"].astype(float))
+    X = np.vstack([np.ones(n), px_r.values]).T
+    y = px_l.values
+    beta_hat = np.linalg.lstsq(X, y, rcond=None)[0][1]
+
+    spread = px_l - beta_hat * px_r
+    std = spread.std(ddof=1)
+    zscore_series: list[tuple[pd.Timestamp, float]] = []
+    if std != 0 and np.isfinite(std):
+        spread_z = (spread - spread.mean()) / std
+        dates = pd.to_datetime(df["date"])
+        zscore_series = [
+            (
+                d.to_pydatetime() if hasattr(d, "to_pydatetime") else d,
+                float(z),
+            )
+            for d, z in zip(dates, spread_z)
+            if np.isfinite(z)
+        ]
+
+    normalized_series: list[tuple[pd.Timestamp, float, float]] = []
+    if n > 0:
+        base_l = float(df["close_l"].iloc[0])
+        base_r = float(df["close_r"].iloc[0])
+        if base_l != 0 and base_r != 0 and np.isfinite(base_l) and np.isfinite(base_r):
+            norm_left = (df["close_l"].astype(float) / base_l) * 100.0
+            norm_right = (df["close_r"].astype(float) / base_r) * 100.0
+            dates = pd.to_datetime(df["date"])
+            normalized_series = [
+                (
+                    d.to_pydatetime() if hasattr(d, "to_pydatetime") else d,
+                    float(nl),
+                    float(nr),
+                )
+                for d, nl, nr in zip(dates, norm_left, norm_right)
+            ]
+
+    moving_beta_series: list[tuple[pd.Timestamp, float]] = []
+    if beta_window > 1 and n >= beta_window:
+        dates = pd.to_datetime(df["date"])
+        for end_idx in range(beta_window, n + 1, beta_window):
+            start_idx = end_idx - beta_window
+            sub_l = px_l.iloc[start_idx:end_idx]
+            sub_r = px_r.iloc[start_idx:end_idx]
+            Xb = np.vstack([np.ones(beta_window), sub_r.values]).T
+            yb = sub_l.values
+            try:
+                beta_sub = np.linalg.lstsq(Xb, yb, rcond=None)[0][1]
+            except Exception:
+                continue
+            dt = dates.iloc[end_idx - 1]
+            moving_beta_series.append(
+                (
+                    dt.to_pydatetime() if hasattr(dt, "to_pydatetime") else dt,
+                    float(beta_sub),
+                )
+            )
+
+    return {
+        "metrics": metrics,
+        "zscore_series": zscore_series,
+        "normalized_series": normalized_series,
+        "moving_beta_series": moving_beta_series,
+    }

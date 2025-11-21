@@ -22,7 +22,35 @@ NÃO estende _base.html. É apenas um pedaço de HTML.
 
   {% else %}
 
-    {% if data.state == "running" %}
+    {% if data.state == "waiting" %}
+      <div class="alert alert-warning py-2 mb-2 shadow-sm rounded-3">
+        <div class="fw-semibold">Nenhum par aprovado na janela {{ data.window }}d.</div>
+        <div class="small text-body-secondary">
+          Avancar para a proxima janela ({{ data.next_window }}d)?
+        </div>
+        <div class="d-flex gap-2 mt-2">
+          <form
+            hx-post="{% url 'pairs:hunt_decision' job_id %}"
+            hx-target="#huntStatus"
+            hx-swap="outerHTML"
+            class="d-inline">
+            {% csrf_token %}
+            <input type="hidden" name="action" value="continue">
+            <button class="btn btn-sm btn-warning">Ir para {{ data.next_window }}d</button>
+          </form>
+          <form
+            hx-post="{% url 'pairs:hunt_decision' job_id %}"
+            hx-target="#huntStatus"
+            hx-swap="outerHTML"
+            class="d-inline">
+            {% csrf_token %}
+            <input type="hidden" name="action" value="cancel">
+            <button class="btn btn-sm btn-outline-secondary">Cancelar busca</button>
+          </form>
+        </div>
+      </div>
+
+    {% elif data.state == "running" %}
       <div class="alert alert-info py-2 mb-2 shadow-sm rounded-3">
         <div class="d-flex align-items-center justify-content-between">
           <div class="fw-semibold">
@@ -51,23 +79,30 @@ NÃO estende _base.html. É apenas um pedaço de HTML.
               <div class="progress-bar progress-bar-striped progress-bar-animated bg-info" style="width: 100%;"></div>
           </div>
         {% endif %}
+        {% if data.phase == "window_next" %}
+          <div class="alert alert-warning py-1 px-2 mt-2 mb-0 small rounded-3">
+            Nenhum par aprovado na janela {{ data.window }}d; testando a proxima ({{ data.next_window }}d).
+          </div>
+        {% endif %}
       </div>
 
     {% elif data.state == "done" %}
-      <div class="alert alert-success py-2 mb-2 shadow-sm rounded-3">
-        {% with r=data.result %}
-          {% if r.found %}
+      {% with r=data.result %}
+        <div class="alert {% if r.cancelled %}alert-warning{% else %}alert-success{% endif %} py-2 mb-2 shadow-sm rounded-3">
+          {% if r.cancelled %}
+            Busca cancelada pelo usuario{% if r.window %} apos a janela {{ r.window }}d{% endif %}.
+          {% elif r.found %}
             ✅ Encontrados {{ r.approved_ids|length }} pares na janela {{ r.window }}d.
           {% else %}
             😕 Nenhum par aprovado nas janelas testadas.
           {% endif %}
-        {% endwith %}
-        <div class="mt-2">
-          <a class="btn btn-sm btn-success-subtle border-success-subtle" href="{% url 'pairs:home' %}">
-            Atualizar página
-          </a>
+          <div class="mt-2">
+            <a class="btn btn-sm btn-success-subtle border-success-subtle" href="{% url 'pairs:home' %}">
+              Atualizar página
+            </a>
+          </div>
         </div>
-      </div>
+      {% endwith %}
 
     {% elif data.state == "error" %}
       <div class="alert alert-danger py-2 mb-2 shadow-sm rounded-3">
@@ -80,6 +115,52 @@ NÃO estende _base.html. É apenas um pedaço de HTML.
       </div>
     {% endif %}
 
+  {% endif %}
+
+  {% if log_rows %}
+    <div class="card shadow-sm mt-2">
+      <div class="card-body">
+        <div class="d-flex justify-content-between align-items-center mb-2">
+          <div class="fw-semibold">Resultados provisórios</div>
+          <a
+            class="btn btn-sm btn-outline-primary"
+            href="{% url 'pairs:hunt_export' job_id %}"
+          >
+            Baixar CSV
+          </a>
+        </div>
+        <div class="table-responsive" style="max-height: 220px; overflow-y: auto;">
+          <table class="table table-sm mb-0">
+            <thead>
+              <tr>
+                <th>Par</th>
+                <th>Status</th>
+                <th>Janela</th>
+                <th>Compute (ms)</th>
+                <th>Mensagem</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for row in log_rows|slice:"-10:" %}
+                <tr>
+                  <td>{{ row.pair_label }}</td>
+                  <td>
+                    {% if row.status == "approved" %}
+                      <span class="badge bg-success">Aprovado</span>
+                    {% else %}
+                      <span class="badge bg-secondary">{{ row.status|capfirst }}</span>
+                    {% endif %}
+                  </td>
+                  <td>{{ row.window }}</td>
+                  <td>{{ row.compute_ms }}</td>
+                  <td>{{ row.message }}</td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
   {% endif %}
 </div>
 
