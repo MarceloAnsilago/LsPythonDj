@@ -7,6 +7,7 @@ from typing import Iterable, Optional, Callable
 import pandas as pd
 import requests
 import yfinance as yf
+from django.db import transaction
 from django.db.models import Max
 from django.utils import timezone
 
@@ -89,6 +90,8 @@ def _yf_close_series(df: Optional[pd.DataFrame]) -> Optional[pd.Series]:
 
 
 CLOSE_UPDATE_TOLERANCE = 1e-6
+INCREMENTAL_LOOKBACK_DAYS = 5  # dias de folga ao baixar de forma incremental
+BULK_BATCH_SIZE = 1000  # flush para nao acumular objetos em memoria
 
 
 def _safe_float(value: object) -> float | None:
@@ -114,13 +117,43 @@ def _update_daily_quote_close_if_changed(asset, quote_date, new_close) -> bool:
     if new_value is None:
         return False
     queryset = QuoteDaily.objects.filter(asset=asset, date=quote_date)
-    existing_close = queryset.values_list("close", flat=True).first()
-    if existing_close is None:
+    row = queryset.first()
+    if row is None:
         return False
-    if abs(existing_close - new_value) <= CLOSE_UPDATE_TOLERANCE:
+
+    if abs(row.close - new_value) <= CLOSE_UPDATE_TOLERANCE:
+        # Mesmo preço: apenas marca como definitivo se era provisório
+        if row.is_provisional:
+            queryset.update(is_provisional=False)
         return False
-    queryset.update(close=new_value)
+
+    queryset.update(close=new_value, is_provisional=False)
     return True
+
+
+def ensure_today_placeholder(asset) -> None:
+    """
+    Se hoje for dia útil e ainda não existir QuoteDaily para hoje,
+    cria uma linha provisória copiando o último fechamento conhecido.
+    """
+    today = timezone.localdate()
+    if today not in _business_days(today, today):
+        return
+
+    qs = QuoteDaily.objects.filter(asset=asset)
+    if qs.filter(date=today).exists():
+        return
+
+    last = qs.order_by("-date").first()
+    if not last:
+        return
+
+    with transaction.atomic():
+        QuoteDaily.objects.get_or_create(
+            asset=asset,
+            date=today,
+            defaults={"close": last.close, "is_provisional": True},
+        )
 
 
 def fetch_stooq_df(ticker: str) -> Optional[pd.DataFrame]:
@@ -170,6 +203,16 @@ def bulk_update_quotes(
     total_rows = 0
     assets_with_inserts = 0
 
+    def _flush_bulk():
+        if not bulk_objs:
+            return
+        QuoteDaily.objects.bulk_create(
+            bulk_objs,
+            ignore_conflicts=True,
+            batch_size=BULK_BATCH_SIZE,
+        )
+        bulk_objs.clear()
+
     for idx, asset in enumerate(assets, start=1):
         ticker = getattr(asset, "ticker", "").strip().upper()
         if not ticker:
@@ -180,6 +223,9 @@ def bulk_update_quotes(
         if progress_cb:
             progress_cb(ticker, idx, total_assets, "processing", 0)
 
+        # garante placeholder provisório para hoje (se negociável e ainda não existir)
+        ensure_today_placeholder(asset)
+
         # última data gravada para filtrar incrementalmente
         last_dt = QuoteDaily.objects.filter(asset=asset).aggregate(Max("date"))["date__max"]
 
@@ -188,15 +234,22 @@ def bulk_update_quotes(
 
         # ---- 1) YAHOO (principal) ----
         try:
-            df_yf = yf.download(
+            yf_kwargs = dict(
                 tickers=_yf_symbol(ticker),
-                period=period,
                 interval=interval,
-                auto_adjust=False,   # mantém compat com seu pipeline
+                auto_adjust=False,   # mantem compat com seu pipeline
                 progress=False,
                 threads=False,
                 group_by="column",   # ajuda a padronizar colunas
             )
+            if last_dt:
+                start_dt = last_dt - timedelta(days=INCREMENTAL_LOOKBACK_DAYS)
+                yf_kwargs["start"] = start_dt.isoformat()
+                yf_kwargs["end"] = (today + timedelta(days=1)).isoformat()
+            else:
+                yf_kwargs["period"] = period
+
+            df_yf = yf.download(**yf_kwargs)
             s_close = _yf_close_series(df_yf)
             if s_close is not None:
                 had_any_source_data = True
@@ -214,8 +267,10 @@ def bulk_update_quotes(
                         try:
                             bulk_objs.append(QuoteDaily(asset=asset, date=dt, close=float(px)))
                             inserted_for_asset += 1
+                            if len(bulk_objs) >= BULK_BATCH_SIZE:
+                                _flush_bulk()
                         except Exception:
-                            # ignora erro pontual na construção do objeto
+                            # ignora erro pontual ao criar o objeto
                             pass
         except Exception as e:
             print(f"[yfinance] erro {ticker}: {e}")
@@ -239,6 +294,8 @@ def bulk_update_quotes(
                             try:
                                 bulk_objs.append(QuoteDaily(asset=asset, date=dt, close=float(px)))
                                 inserted_for_asset += 1
+                                if len(bulk_objs) >= BULK_BATCH_SIZE:
+                                    _flush_bulk()
                             except Exception:
                                 pass
             except Exception as e:
@@ -269,8 +326,7 @@ def bulk_update_quotes(
                     progress_cb(ticker, idx, total_assets, "no_data", 0)
 
     # ---- 4) Persistência em lote ----
-    if bulk_objs:
-        QuoteDaily.objects.bulk_create(bulk_objs, ignore_conflicts=True, batch_size=1000)
+    _flush_bulk()
 
     if progress_cb:
         progress_cb("done", total_assets, total_assets, "done", total_rows)

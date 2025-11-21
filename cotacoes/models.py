@@ -8,6 +8,7 @@ class QuoteDaily(models.Model):
     asset = models.ForeignKey("acoes.Asset", on_delete=models.CASCADE, related_name="quotes")
     date = models.DateField()
     close = models.FloatField()
+    is_provisional = models.BooleanField(default=False)
 
     class Meta:
         unique_together = (("asset", "date"),)
