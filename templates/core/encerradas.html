@@ -2,11 +2,28 @@
 {% block title %}Operações encerradas - Long & Short{% endblock %}
 {% block content %}
 <div class="py-3">
-  <div class="mb-3">
-    <h1 class="h5 fw-semibold mb-1">Operações encerradas</h1>
-    <p class="text-body-secondary small mb-0">
-      Painel com métricas de fechamento para acompanhar a performance do histórico.
-    </p>
+  <div class="d-flex align-items-start justify-content-between gap-3 mb-3 flex-wrap">
+    <div>
+      <h1 class="h5 fw-semibold mb-1">Operacoes encerradas</h1>
+      <p class="text-body-secondary small mb-0">
+        Painel com metricas de fechamento para acompanhar a performance do historico.
+      </p>
+    </div>
+    <form class="d-flex align-items-center gap-2 mb-0" method="get">
+      {% for key, value in request.GET.items %}
+        {% if key != "period" %}
+          <input type="hidden" name="{{ key }}" value="{{ value }}">
+        {% endif %}
+      {% endfor %}
+      <label class="form-label small text-body-secondary mb-0" for="periodSelect">Periodo</label>
+      <select class="form-select form-select-sm w-auto" id="periodSelect" name="period" onchange="this.form.submit()">
+        {% for option in period_options %}
+          <option value="{{ option.value }}" {% if option.value == selected_period %}selected{% endif %}>
+            {{ option.label }}
+          </option>
+        {% endfor %}
+      </select>
+    </form>
   </div>
 
   <div class="row g-3">

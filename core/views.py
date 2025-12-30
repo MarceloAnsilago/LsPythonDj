@@ -1,8 +1,10 @@
 ﻿from __future__ import annotations
 
-from collections import defaultdict
+from collections import defaultdict, OrderedDict
 from decimal import Decimal, InvalidOperation
 from types import SimpleNamespace
+
+from dateutil.relativedelta import relativedelta
 
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
@@ -619,8 +621,87 @@ def encerradas(request):
         .filter(user=request.user, status=Operation.STATUS_CLOSED)
         .order_by("-updated_at")
     )
-    total_closed = closed_qs.count()
+    closed_operations = list(closed_qs)
     closing_price_cache: dict[tuple[int, object], Decimal | None] = {}
+
+    today = timezone.localdate()
+    current_month_start = today.replace(day=1)
+    last_12_start = current_month_start - relativedelta(months=11)
+    MONTH_LABELS = (
+        "Jan",
+        "Fev",
+        "Mar",
+        "Abr",
+        "Mai",
+        "Jun",
+        "Jul",
+        "Ago",
+        "Set",
+        "Out",
+        "Nov",
+        "Dez",
+    )
+
+    def _format_month_label(value):
+        return f"{MONTH_LABELS[value.month - 1]} {value.year}"
+
+    months_seen: OrderedDict[str, str] = OrderedDict()
+    operation_contexts: list[dict[str, object]] = []
+    for operation in closed_operations:
+        closing_dt = operation.updated_at or operation.opened_at
+        closing_local = None
+        closing_date = None
+        if closing_dt:
+            try:
+                closing_local = timezone.localtime(closing_dt)
+            except Exception:
+                closing_local = closing_dt
+            closing_date = closing_local.date() if hasattr(closing_local, "date") else None
+        month_key = None
+        if closing_date:
+            month_start = closing_date.replace(day=1)
+            if month_start >= last_12_start:
+                month_key = closing_date.strftime("%Y-%m")
+                if month_key not in months_seen:
+                    months_seen[month_key] = _format_month_label(closing_date)
+        operation_contexts.append(
+            {
+                "operation": operation,
+                "closing_local": closing_local,
+                "closing_date": closing_date,
+                "month_key": month_key,
+            }
+        )
+
+    raw_period = (request.GET.get("period") or "general").strip()
+    selected_period = raw_period.lower()
+    selected_month_key: str | None = None
+    if selected_period.startswith("month:"):
+        _, candidate = selected_period.split(":", 1)
+        if candidate in months_seen:
+            selected_month_key = candidate
+        else:
+            selected_period = "general"
+    if selected_period not in {"general", "last_12"} and not selected_period.startswith("month:"):
+        selected_period = "general"
+        selected_month_key = None
+
+    period_options = [
+        {"value": "general", "label": "Geral"},
+        {"value": "last_12", "label": "Ultimos 12 meses"},
+    ]
+    for month_key, month_label in months_seen.items():
+        period_options.append({"value": f"month:{month_key}", "label": month_label})
+
+    def _matches_period(context: dict[str, object]) -> bool:
+        if selected_period == "general":
+            return True
+        if selected_period == "last_12":
+            closing_date = context["closing_date"]
+            return bool(closing_date and closing_date >= last_12_start)
+        if selected_month_key:
+            return context["month_key"] == selected_month_key
+        return True
 
     def _fetch_price(asset_id: int | None, target_date):
         if not asset_id or not target_date:
@@ -651,15 +732,16 @@ def encerradas(request):
     MAX_GRID = 12
     closing_records: list[tuple[object, Decimal | None]] = []
     MAX_RECENT = 6
+    total_closed = 0
 
-    for operation in closed_qs:
-        closing_dt = operation.updated_at or operation.opened_at
-        if not closing_dt:
+    for context in operation_contexts:
+        if not _matches_period(context):
             continue
-        try:
-            closing_local = timezone.localtime(closing_dt)
-        except Exception:
-            closing_local = closing_dt
+        closing_local = context["closing_local"]
+        if not closing_local:
+            continue
+        total_closed += 1
+        operation = context["operation"]
         try:
             opened_local = timezone.localtime(operation.opened_at) if operation.opened_at else closing_local
         except Exception:
@@ -673,7 +755,7 @@ def encerradas(request):
                 days_open = 0.0
         days_total += days_open
         days_count += 1
-        closing_date = closing_local.date() if hasattr(closing_local, "date") else None
+        closing_date = context["closing_date"]
         if closing_date:
             days_by_date[closing_date].append(days_open)
         sell_close_price = _fetch_price(operation.sell_asset_id, closing_date)
@@ -723,7 +805,7 @@ def encerradas(request):
             )
 
     hit_rate_label = "--"
-    hit_rate_detail = "Ainda não há fechamentos com resultado calculado."
+    hit_rate_detail = "Ainda n?o h? fechamentos com resultado calculado."
     if pnl_valid:
         pct = round((hit_count / pnl_valid) * 100)
         hit_rate_label = f"{pct}%"
@@ -741,7 +823,7 @@ def encerradas(request):
         except (TypeError, ValueError, InvalidOperation):
             ratio_label = "--"
     elif profit_sum > Decimal("0"):
-        ratio_label = "\u221e"
+        ratio_label = "∞"
 
     net_total = profit_sum - loss_sum
     pnl_series = [
@@ -757,7 +839,7 @@ def encerradas(request):
         days_series.append({"label": closing_date.strftime("%d/%m"), "value": round(avg, 1)})
     profit_loss_series = [
         {"label": "Lucro", "value": float(profit_sum)},
-        {"label": "Prejuízo", "value": float(loss_sum)},
+        {"label": "Preju?zo", "value": float(loss_sum)},
     ]
 
     sorted_records = sorted(
@@ -785,8 +867,8 @@ def encerradas(request):
             negative_streak = current_length
 
     streak_series = [
-        {"label": "Maior sequência positiva", "value": positive_streak},
-        {"label": "Maior sequência negativa", "value": negative_streak},
+        {"label": "Maior sequ?ncia positiva", "value": positive_streak},
+        {"label": "Maior sequ?ncia negativa", "value": negative_streak},
     ]
 
     return render(
@@ -794,7 +876,7 @@ def encerradas(request):
         "core/encerradas.html",
         {
             "current": "encerradas",
-            "title": "Operações encerradas",
+            "title": "Opera??es encerradas",
             "total_closed_label": number_format(total_closed, 0),
             "hit_rate_label": hit_rate_label,
             "hit_rate_detail": hit_rate_detail,
@@ -804,14 +886,18 @@ def encerradas(request):
             "net_total_label": _format_money(net_total),
             "profit_loss_ratio_label": ratio_label,
             "recent_operations": recent_operations,
-        "chart_pnl_series": pnl_series,
-        "chart_days_open_series": days_series,
-        "chart_profit_loss": profit_loss_series,
-        "chart_streak_series": streak_series,
-        "operation_grid": grid_operations,
-        "has_operations": total_closed > 0,
-    },
-)
+            "chart_pnl_series": pnl_series,
+            "chart_days_open_series": days_series,
+            "chart_profit_loss": profit_loss_series,
+            "chart_streak_series": streak_series,
+            "operation_grid": grid_operations,
+            "period_options": period_options,
+            "selected_period": selected_period,
+            "has_operations": total_closed > 0,
+        },
+    )
+
+
 
 
 def _format_detail_updated(dt_value) -> str:
