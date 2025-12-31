@@ -48,8 +48,9 @@ def _build_pivot_context(request: HttpRequest, max_rows: int = 90):
           .sort_index(ascending=False)
           .round(2)
     )
-    if max_rows:
-        df_pivot = df_pivot.head(max_rows)
+    effective_max = 200 if tickers_filter else max_rows
+    if effective_max:
+        df_pivot = df_pivot.head(effective_max)
     cols = list(df_pivot.columns)
     if tickers_filter:
         filtered = [ticker for ticker in tickers_filter if ticker in cols]
@@ -92,10 +93,11 @@ class QuotesHomeView(LoginRequiredMixin, TemplateView):
             return ctx
 
         df["date"] = pd.to_datetime(df["date"])
+        max_rows = 200 if tickers_filter else 60
         pivot = (
             df.pivot(index="date", columns="asset__ticker", values="close")
               .sort_index(ascending=False)
-              .head(60)
+              .head(max_rows)
               .round(2)
         )
         cols = list(pivot.columns)
