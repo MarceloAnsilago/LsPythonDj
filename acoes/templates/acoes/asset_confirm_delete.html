@@ -1,14 +1,85 @@
 {% extends "_base.html" %}
 {% load static %}
 
+{% block extra_head %}
+<style>
+  .asset-icon {
+    width: 48px;
+    height: 48px;
+    border-radius: 50%;
+    background: rgba(15, 23, 42, 0.08);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.35rem;
+    position: relative;
+    color: #0f172a;
+  }
+  .asset-icon::before {
+    content: "★";
+  }
+  .asset-icon img {
+    position: absolute;
+    inset: 4px;
+    width: calc(100% - 8px);
+    height: calc(100% - 8px);
+    border-radius: 50%;
+    object-fit: cover;
+    opacity: 0;
+    transition: opacity 0.25s ease;
+  }
+  .asset-icon.asset-icon--loaded {
+    color: transparent;
+  }
+  .asset-icon.asset-icon--loaded img {
+    opacity: 1;
+  }
+</style>
+{% endblock %}
+
 {% block content %}
-<h2 class="mb-3">Excluir Ativo</h2>
+{% with ticker=object.ticker|default:"" %}
+  <div class="d-flex align-items-center gap-3 mb-3">
+    <span class="asset-icon" aria-hidden="true">
+      {% if ticker %}
+        <img
+          src="https://raw.githubusercontent.com/thefintz/icones-b3/main/icones/{{ ticker|upper }}.png"
+          alt="{{ ticker|upper }}"
+          loading="lazy"
+        >
+      {% endif %}
+    </span>
+    <h2 class="mb-0">Excluir Ativo</h2>
+  </div>
+{% endwith %}
 <div class="card p-3 shadow-sm rounded-3">
-  <p>Confirma excluir <strong>{{ object.ticker }}</strong> — {{ object.name }}?</p>
+  <p>Confirma excluir <strong>{{ object.ticker }}</strong> – {{ object.name }}?</p>
   <form method="post" class="d-flex gap-2">
     {% csrf_token %}
     <button class="btn btn-danger">Excluir</button>
     <a class="btn btn-outline-secondary" href="{% url 'acoes:lista' %}">Cancelar</a>
   </form>
 </div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+  document.querySelectorAll('.asset-icon img').forEach((img) => {
+    img.addEventListener('load', function () {
+      const wrapper = this.closest('.asset-icon');
+      if (wrapper) {
+        wrapper.classList.add('asset-icon--loaded');
+      }
+    });
+    img.addEventListener('error', function () {
+      const wrapper = this.closest('.asset-icon');
+      if (wrapper) {
+        wrapper.classList.add('asset-icon--missing');
+      }
+      this.remove();
+    });
+  });
+});
+</script>
 {% endblock %}

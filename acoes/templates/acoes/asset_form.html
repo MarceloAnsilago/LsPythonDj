@@ -2,8 +2,56 @@
 {% load static %}
 {% load widget_tweaks %}
 
+{% block extra_head %}
+<style>
+  .asset-icon {
+    width: 48px;
+    height: 48px;
+    border-radius: 50%;
+    background: rgba(15, 23, 42, 0.08);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.35rem;
+    position: relative;
+    color: #0f172a;
+  }
+  .asset-icon::before {
+    content: "★";
+  }
+  .asset-icon img {
+    position: absolute;
+    inset: 4px;
+    width: calc(100% - 8px);
+    height: calc(100% - 8px);
+    border-radius: 50%;
+    object-fit: cover;
+    opacity: 0;
+    transition: opacity 0.25s ease;
+  }
+  .asset-icon.asset-icon--loaded {
+    color: transparent;
+  }
+  .asset-icon.asset-icon--loaded img {
+    opacity: 1;
+  }
+</style>
+{% endblock %}
 {% block content %}
-<h2 class="mb-3">{{ view.object|yesno:"Editar Ativo,Novo Ativo" }}</h2>
+{% with ticker=view.object.ticker|default:"" %}
+  <div class="d-flex align-items-center gap-3 mb-3">
+    <span class="asset-icon" aria-hidden="true">
+      {% if ticker %}
+        <img
+          src="https://raw.githubusercontent.com/thefintz/icones-b3/main/icones/{{ ticker|upper }}.png"
+          alt="{{ ticker|upper }}"
+          loading="lazy"
+        >
+      {% endif %}
+    </span>
+    <h2 class="mb-0">{{ view.object|yesno:"Editar Ativo,Novo Ativo" }}</h2>
+  </div>
+{% endwith %}
 
 <form method="post" class="card p-3 p-md-4 shadow-sm rounded-3">
   {% csrf_token %}
@@ -80,5 +128,24 @@
     });
   }
 })();
+</script>
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+  document.querySelectorAll('.asset-icon img').forEach((img) => {
+    img.addEventListener('load', function () {
+      const wrapper = this.closest('.asset-icon');
+      if (wrapper) {
+        wrapper.classList.add('asset-icon--loaded');
+      }
+    });
+    img.addEventListener('error', function () {
+      const wrapper = this.closest('.asset-icon');
+      if (wrapper) {
+        wrapper.classList.add('asset-icon--missing');
+      }
+      this.remove();
+    });
+  });
+});
 </script>
 {% endblock %}
