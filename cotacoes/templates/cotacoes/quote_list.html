@@ -32,19 +32,19 @@
             <strong>Tabela de Cotações (Pivot)</strong>
           </div>
           <div class="card-body">
-            <form class="row row-cols-lg-auto g-2 align-items-end mb-3" method="get">
+            <form class="row g-2 mb-3" method="get">
               <div class="col-12">
                 <label class="form-label small mb-1" for="pivotTickersFilter">Filtrar colunas (tickers)</label>
                 <input
                   id="pivotTickersFilter"
                   name="tickers"
-                  class="form-control form-control-sm"
+                  class="form-control form-control-sm w-100"
                   placeholder="ABEV3,ALOS3"
                   value="{{ tickers_query }}"
                 >
               </div>
-              <div class="col-12">
-                <button class="btn btn-primary btn-sm w-100">Filtrar</button>
+              <div class="col-12 text-end">
+                <button class="btn btn-primary btn-sm">Filtrar</button>
               </div>
             </form>
             <div class="table-responsive" style="overflow-x:auto;">
@@ -89,9 +89,15 @@
             {% for log in logs %}
               <li class="list-group-item">
                 <div class="d-flex justify-content-between align-items-start">
-                  <div>
-                    <span class="badge text-bg-secondary">{{ log.asset.ticker }}</span>
-                    <small class="text-muted">{{ log.created_at|date:"d/m/Y H:i" }}</small><br>
+                    <div>
+                      <button
+                        type="button"
+                        class="badge text-bg-secondary border-0 px-2 py-1 me-1"
+                        data-fill-tickers="{{ log.asset.ticker }}"
+                      >
+                        {{ log.asset.ticker }}
+                      </button>
+                      <small class="text-muted">{{ log.created_at|date:"d/m/Y H:i" }}</small><br>
                     <span class="small d-block mt-1">
                       {{ log.reason }} — {{ log.detail|truncatechars:80 }}
                     </span>
@@ -138,20 +144,35 @@
 <script>
 document.addEventListener('DOMContentLoaded', function () {
   const btn = document.getElementById('btnUpdate');
-  if (!btn) return;
+  if (btn) {
+    const sp  = document.getElementById('spUpdate');
+    const ico = document.getElementById('icoUpdate');
+    const txt = document.getElementById('txtUpdate');
 
-  const sp  = document.getElementById('spUpdate');
-  const ico = document.getElementById('icoUpdate');
-  const txt = document.getElementById('txtUpdate');
+    btn.addEventListener('click', function () {
+      // mostra spinner e desabilita botão imediatamente
+      sp.classList.remove('d-none');
+      if (ico) ico.classList.add('d-none');
+      if (txt) txt.textContent = 'Atualizando...';
+      btn.classList.add('disabled');
+      btn.setAttribute('aria-disabled', 'true');
+    }, { passive: true });
+  }
 
-  btn.addEventListener('click', function () {
-    // mostra spinner e desabilita botão imediatamente
-    sp.classList.remove('d-none');
-    if (ico) ico.classList.add('d-none');
-    if (txt) txt.textContent = 'Atualizando...';
-    btn.classList.add('disabled');
-    btn.setAttribute('aria-disabled', 'true');
-  }, { passive: true });
+  const pivotInput = document.getElementById('pivotTickersFilter');
+  if (pivotInput) {
+    const seedButtons = document.querySelectorAll('[data-fill-tickers]');
+    seedButtons.forEach((button) => {
+      button.addEventListener('click', function () {
+        const ticker = this.dataset.fillTickers;
+        if (!ticker) {
+          return;
+        }
+        pivotInput.value = ticker;
+        pivotInput.focus();
+      });
+    });
+  }
 });
 </script>
 {% endblock %}
