@@ -30,12 +30,19 @@ from longshort.services.quotes import (
 
 
 def _build_pivot_context(request: HttpRequest, max_rows: int = 90):
+    tickers_query = (request.GET.get("tickers") or "").strip()
+    tickers_filter = [
+        token.strip().upper()
+        for token in tickers_query.split(",")
+        if token.strip()
+    ]
+
     qs = QuoteDaily.objects.select_related("asset").order_by("-date")
     if not qs.exists():
-        return {"cols": [], "rows": []}
+        return {"cols": [], "rows": [], "tickers_query": tickers_query}
     df = pd.DataFrame(list(qs.values("date", "asset__ticker", "close")))
     if df.empty:
-        return {"cols": [], "rows": []}
+        return {"cols": [], "rows": [], "tickers_query": tickers_query}
     df_pivot = (
         df.pivot(index="date", columns="asset__ticker", values="close")
           .sort_index(ascending=False)
@@ -44,13 +51,18 @@ def _build_pivot_context(request: HttpRequest, max_rows: int = 90):
     if max_rows:
         df_pivot = df_pivot.head(max_rows)
     cols = list(df_pivot.columns)
+    if tickers_filter:
+        filtered = [ticker for ticker in tickers_filter if ticker in cols]
+        cols = filtered
     rows = []
     for dt, row in df_pivot.iterrows():
-        rows.append({
-            "date": dt,
-            "values": [("" if pd.isna(row[c]) else float(row[c])) for c in cols],
-        })
-    return {"cols": cols, "rows": rows}
+        rows.append(
+            {
+                "date": dt,
+                "values": [("" if pd.isna(row[c]) else float(row[c])) for c in cols],
+            }
+        )
+    return {"cols": cols, "rows": rows, "tickers_query": tickers_query}
 
 
 
@@ -59,6 +71,12 @@ class QuotesHomeView(LoginRequiredMixin, TemplateView):
 
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
+        tickers_query = (self.request.GET.get("tickers") or "").strip()
+        tickers_filter = [
+            token.strip().upper()
+            for token in tickers_query.split(",")
+            if token.strip()
+        ]
 
         ctx["last_quotes"] = (
             QuoteDaily.objects.select_related("asset")
@@ -81,6 +99,8 @@ class QuotesHomeView(LoginRequiredMixin, TemplateView):
               .round(2)
         )
         cols = list(pivot.columns)
+        if tickers_filter:
+            cols = [col for col in cols if col in tickers_filter]
         rows = []
         for idx, row in pivot.iterrows():
             rows.append({
@@ -89,6 +109,7 @@ class QuotesHomeView(LoginRequiredMixin, TemplateView):
             })
         ctx["pivot_cols"] = cols
         ctx["pivot_rows"] = rows
+        ctx["tickers_query"] = tickers_query
         return ctx
 
 
@@ -107,9 +128,16 @@ def update_quotes(request: HttpRequest):
     return redirect(reverse_lazy("cotacoes:home"))
 
 def quotes_pivot(request: HttpRequest):
-    pivot_ctx = _build_pivot_context(request, max_rows=None)  # ✅ passa request
-    return render(request, "cotacoes/quote_pivot.html",
-                  {"cols": pivot_ctx["cols"], "data": pivot_ctx["rows"]})
+    pivot_ctx = _build_pivot_context(request, max_rows=None)
+    return render(
+        request,
+        "cotacoes/quote_pivot.html",
+        {
+            "cols": pivot_ctx["cols"],
+            "data": pivot_ctx["rows"],
+            "tickers_query": pivot_ctx.get("tickers_query", ""),
+        },
+    )
 
 
 

@@ -6,6 +6,26 @@
       <h5 class="mb-0">Tabela de Cotações (Pivot)</h5>
     </div>
   </div>
+  <div class="card rounded-3 shadow-sm mb-3">
+    <div class="card-body">
+      <form class="row g-2 align-items-end" method="get">
+        <div class="col-auto">
+          <label class="form-label mb-0" for="tickersFilter">Filtrar colunas (tickers)</label>
+          <input
+            id="tickersFilter"
+            class="form-control form-control-sm"
+            type="text"
+            name="tickers"
+            placeholder="ABEV3,ALOS3"
+            value="{{ tickers_query }}"
+          >
+        </div>
+        <div class="col-auto">
+          <button class="btn btn-primary btn-sm">Aplicar</button>
+        </div>
+      </form>
+    </div>
+  </div>
   <div class="card">
     <div class="card-body">
       <div class="table-responsive">
