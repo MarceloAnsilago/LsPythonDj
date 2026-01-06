@@ -146,7 +146,7 @@ def quotes_pivot(request: HttpRequest):
 @login_required
 @require_POST
 def clear_logs(request: HttpRequest):
-    deleted = MissingQuoteLog.objects.filter(resolved_bool=False).delete()[0]
+    deleted = MissingQuoteLog.objects.all().delete()[0]
     messages.success(request, f"Logs limpos: {deleted} removidos.")
     return redirect("cotacoes:home")
 
