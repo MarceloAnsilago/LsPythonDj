@@ -31,8 +31,14 @@ from pairs.models import Pair, UserMetricsConfig
 from operacoes.models import Operation, OperationMetricSnapshot
 
 
+def _parse_bool_param(request, name: str) -> bool:
+    value = (request.GET.get(name) or "").strip().lower()
+    return value in {"1", "true", "on", "yes", "sim"}
+
+
 def _build_home_operations_payload(request):
     operations_cards: list[dict] = []
+    real_only = _parse_bool_param(request, "real_only")
 
     def _fmt_money(value: Decimal | float | None) -> str:
         if value is None:
@@ -175,6 +181,8 @@ def _build_home_operations_payload(request):
         .filter(user=request.user, status=Operation.STATUS_OPEN)
         .order_by("-opened_at")
     )
+    if real_only:
+        operations_qs = operations_qs.filter(is_real=True)
 
     for operation in operations_qs:
         entry_snapshot = (operation.entry_snapshots[0] if getattr(operation, "entry_snapshots", None) else None)
@@ -514,6 +522,7 @@ def _build_home_operations_payload(request):
         "operations_summary": operations_summary,
         "operations_insight": operations_insight,
         "live_refresh_required": manual_refresh_required,
+        "real_only": real_only,
     }
 
 
@@ -527,6 +536,7 @@ def home(request):
             "operations_data_url": reverse("core:home_data"),
             "refresh_live_url": reverse("core:refresh_live_quotes"),
             "refresh_metrics_url": reverse("core:refresh_operation_metrics"),
+            "real_only": _parse_bool_param(request, "real_only"),
         },
     )
 
@@ -616,11 +626,14 @@ def _decimal_from_value(value) -> Decimal | None:
 
 @login_required
 def encerradas(request):
+    real_only = _parse_bool_param(request, "real_only")
     closed_qs = (
         Operation.objects.select_related("sell_asset", "buy_asset")
         .filter(user=request.user, status=Operation.STATUS_CLOSED)
         .order_by("-updated_at")
     )
+    if real_only:
+        closed_qs = closed_qs.filter(is_real=True)
     closed_operations = list(closed_qs)
     closing_price_cache: dict[tuple[int, object], Decimal | None] = {}
 
@@ -894,6 +907,7 @@ def encerradas(request):
             "period_options": period_options,
             "selected_period": selected_period,
             "has_operations": total_closed > 0,
+            "real_only": real_only,
         },
     )
 

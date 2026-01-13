@@ -34,6 +34,14 @@
         Atualizar métricas
       </button>
       <div id="home-refresh-metrics-feedback" class="text-body-secondary small text-end"></div>
+      <div class="form-check form-switch small mt-1">
+        <input
+          class="form-check-input"
+          type="checkbox"
+          id="homeRealOnly"
+          {% if real_only %}checked{% endif %}>
+        <label class="form-check-label" for="homeRealOnly">Mostrar apenas conta real</label>
+      </div>
     </div>
   </div>
 
@@ -61,13 +69,14 @@
 <script>
 document.addEventListener("DOMContentLoaded", () => {
   const container = document.getElementById("home-operations-root");
-  const dataUrl = container?.dataset?.url;
+  const baseDataUrl = container?.dataset?.url;
   const refreshBtn = document.getElementById("home-refresh-live-btn");
   const feedback = document.getElementById("home-refresh-feedback");
   let refreshUrl = refreshBtn?.dataset?.url;
   const metricsBtn = document.getElementById("home-refresh-metrics-btn");
   const metricsFeedback = document.getElementById("home-refresh-metrics-feedback");
   let metricsUrl = metricsBtn?.dataset?.url;
+  const realOnlyToggle = document.getElementById("homeRealOnly");
 
   const getCookie = (name) => {
     const match = document.cookie.match(new RegExp("(^|;)\\s*" + name + "=([^;]+)"));
@@ -129,7 +138,29 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   };
 
+  const buildDataUrl = () => {
+    if (!baseDataUrl) {
+      return null;
+    }
+    const url = new URL(baseDataUrl, window.location.origin);
+    if (realOnlyToggle?.checked) {
+      url.searchParams.set("real_only", "1");
+    }
+    return url.toString();
+  };
+
+  const syncQueryParam = () => {
+    const url = new URL(window.location.href);
+    if (realOnlyToggle?.checked) {
+      url.searchParams.set("real_only", "1");
+    } else {
+      url.searchParams.delete("real_only");
+    }
+    window.history.replaceState({}, "", url);
+  };
+
   const loadOperations = () => {
+    const dataUrl = buildDataUrl();
     if (!container || !dataUrl) {
       return;
     }
@@ -253,6 +284,12 @@ document.addEventListener("DOMContentLoaded", () => {
     metricsBtn.addEventListener("click", (ev) => {
       ev.preventDefault();
       refreshMetrics();
+    });
+  }
+  if (realOnlyToggle) {
+    realOnlyToggle.addEventListener("change", () => {
+      syncQueryParam();
+      loadOperations();
     });
   }
 
