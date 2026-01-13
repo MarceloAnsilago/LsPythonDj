@@ -942,6 +942,25 @@ def _format_money(value) -> str:
     return f"R$ {number_format(value, 2)}"
 
 
+def _parse_decimal_input(raw: str | None) -> Decimal:
+    if raw is None:
+        raise InvalidOperation
+    text = str(raw).strip()
+    if not text:
+        raise InvalidOperation
+    text = text.replace("R$", "").replace("r$", "").replace(" ", "")
+    if "," in text and "." in text:
+        text = text.replace(".", "")
+        text = text.replace(",", ".")
+    elif "," in text:
+        text = text.replace(",", ".")
+    return Decimal(text)
+
+
+def _format_decimal_input(value: Decimal, quant: str) -> str:
+    return format(value.quantize(Decimal(quant)), "f")
+
+
 def _fmt_metric(value, digits: int = 2, fallback: str = "--") -> str:
     if value is None:
         return fallback
@@ -1928,11 +1947,75 @@ def operacao_encerrar(request, pk: int):
 
     if request.method == "POST":
         action = request.POST.get("action")
+
+        def _apply_executed_prices() -> bool:
+            sell_raw = request.POST.get("executed_sell_price")
+            buy_raw = request.POST.get("executed_buy_price")
+            if not (sell_raw or buy_raw):
+                return True
+            errors: list[str] = []
+            sell_price = None
+            buy_price = None
+            if sell_raw:
+                try:
+                    sell_price = _parse_decimal_input(sell_raw)
+                except InvalidOperation:
+                    errors.append("Preco executado de venda invalido.")
+            if buy_raw:
+                try:
+                    buy_price = _parse_decimal_input(buy_raw)
+                except InvalidOperation:
+                    errors.append("Preco executado de compra invalido.")
+            if sell_price is not None and sell_price <= 0:
+                errors.append("Preco executado de venda precisa ser maior que zero.")
+            if buy_price is not None and buy_price <= 0:
+                errors.append("Preco executado de compra precisa ser maior que zero.")
+            if errors:
+                for msg in errors:
+                    messages.error(request, msg)
+                return False
+
+            price_quant = Decimal("0.000001")
+            money_quant = Decimal("0.01")
+            if sell_price is None:
+                sell_price = operation.sell_price
+            if buy_price is None:
+                buy_price = operation.buy_price
+            sell_price = sell_price.quantize(price_quant)
+            buy_price = buy_price.quantize(price_quant)
+            sell_value = (sell_price * Decimal(operation.sell_quantity)).quantize(money_quant)
+            buy_value = (buy_price * Decimal(operation.buy_quantity)).quantize(money_quant)
+            net_value = (sell_value - buy_value).quantize(money_quant)
+
+            operation.sell_price = sell_price
+            operation.buy_price = buy_price
+            operation.sell_value = sell_value
+            operation.buy_value = buy_value
+            operation.net_value = net_value
+            operation.save(
+                update_fields=[
+                    "sell_price",
+                    "buy_price",
+                    "sell_value",
+                    "buy_value",
+                    "net_value",
+                    "updated_at",
+                ]
+            )
+            messages.success(request, "Precos executados atualizados.")
+            return True
+
         if action == "delete":
             operation.delete()
             messages.success(request, f"Operacao {pair_label} excluida com sucesso.")
             return redirect("core:home")
+        if action == "update_prices":
+            if _apply_executed_prices():
+                return redirect("core:operacao_encerrar", pk=operation.pk)
+            return redirect("core:operacao_encerrar", pk=operation.pk)
         if action == "close":
+            if not _apply_executed_prices():
+                return redirect("core:operacao_encerrar", pk=operation.pk)
             operation.status = Operation.STATUS_CLOSED
             operation.save(update_fields=["status", "updated_at"])
             messages.success(request, f"Operacao {pair_label} encerrada com sucesso.")
@@ -2132,6 +2215,11 @@ def operacao_encerrar(request, pk: int):
     except Exception:
         opened_local = operation.opened_at
 
+    executed_price_inputs = {
+        "sell": _format_decimal_input(Decimal(operation.sell_price), "0.000001"),
+        "buy": _format_decimal_input(Decimal(operation.buy_price), "0.000001"),
+    }
+
     return render(
         request,
         "core/operacao_encerrar.html",
@@ -2160,6 +2248,7 @@ def operacao_encerrar(request, pk: int):
         "operation_date_label": operation.operation_date.strftime("%d/%m/%Y") if operation.operation_date else "",
         "window": operation.window,
         "zscore_series_points": zscore_series_points,
+        "executed_price_inputs": executed_price_inputs,
         },
     )
 

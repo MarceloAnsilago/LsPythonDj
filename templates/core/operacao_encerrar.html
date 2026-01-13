@@ -342,13 +342,47 @@
       {% else %}
         <div class="mt-3 text-body-secondary small">Serie de z-score indisponivel no momento.</div>
       {% endif %}
-      <form method="post" class="mt-3 d-flex flex-column flex-sm-row align-items-stretch align-items-sm-center gap-2">
+      <form method="post" class="mt-3">
         {% csrf_token %}
-        <input type="hidden" name="action" value="close">
-        <button type="submit" class="btn btn-danger btn-sm w-100 w-sm-auto">Encerrar a operação</button>
-        <p class="text-body-secondary small mb-0">
-          Marque o fechamento desta operacao para liberar os cards do inicio.
-        </p>
+        <div class="border rounded-3 p-3 mb-3">
+          <div class="text-uppercase text-body-tertiary fw-semibold small mb-2">Precos executados</div>
+          <div class="row g-2">
+            <div class="col-sm-6">
+              <label for="executedSellPrice" class="form-label small text-body-secondary">Venda executada</label>
+              <input
+                type="text"
+                class="form-control form-control-sm"
+                id="executedSellPrice"
+                name="executed_sell_price"
+                inputmode="decimal"
+                value="{{ executed_price_inputs.sell }}">
+            </div>
+            <div class="col-sm-6">
+              <label for="executedBuyPrice" class="form-label small text-body-secondary">Compra executada</label>
+              <input
+                type="text"
+                class="form-control form-control-sm"
+                id="executedBuyPrice"
+                name="executed_buy_price"
+                inputmode="decimal"
+                value="{{ executed_price_inputs.buy }}">
+            </div>
+          </div>
+          <div class="form-text text-body-secondary">
+            Ajuste os precos executados da conta real antes de encerrar a operacao.
+          </div>
+        </div>
+        <div class="d-flex flex-column flex-sm-row align-items-stretch align-items-sm-center gap-2">
+          <button type="submit" name="action" value="update_prices" class="btn btn-outline-secondary btn-sm w-100 w-sm-auto">
+            Salvar precos
+          </button>
+          <button type="submit" name="action" value="close" class="btn btn-danger btn-sm w-100 w-sm-auto">
+            Encerrar a operacao
+          </button>
+          <p class="text-body-secondary small mb-0">
+            Marque o fechamento desta operacao para liberar os cards do inicio.
+          </p>
+        </div>
       </form>
     </div>
   </div>
