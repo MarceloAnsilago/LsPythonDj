@@ -1,6 +1,7 @@
 ﻿from __future__ import annotations
 
 from collections import defaultdict, OrderedDict
+from datetime import timedelta
 from decimal import Decimal, InvalidOperation
 from types import SimpleNamespace
 
@@ -127,6 +128,24 @@ def _build_home_operations_payload(request):
         yahoo_price_cache[ticker_norm] = (price, error)
         return price, error
 
+    max_live_age = timedelta(minutes=15)
+
+    def _is_stale(updated_at) -> bool:
+        if not updated_at:
+            return True
+        try:
+            updated_local = timezone.localtime(updated_at)
+        except Exception:
+            updated_local = updated_at
+        try:
+            now_local = timezone.localtime(timezone.now())
+        except Exception:
+            now_local = timezone.now()
+        try:
+            return now_local - updated_local >= max_live_age
+        except Exception:
+            return True
+
     def _refresh_live_price_with_yahoo(
         asset: Asset | None,
         current_price: Decimal | None,
@@ -137,7 +156,7 @@ def _build_home_operations_payload(request):
         nonlocal manual_refresh_required
         if not asset:
             return current_price, current_updated
-        if not force and current_price is not None:
+        if not force and current_price is not None and not _is_stale(current_updated):
             return current_price, current_updated
         ticker_norm = _normalize_ticker(getattr(asset, "ticker", None))
         if not ticker_norm:
